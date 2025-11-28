@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { db, storage } from '../lib/firebase.ts';
 import { collection, getDocs, query, orderBy, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { LogOut, Calendar, Package, MapPin, User, Phone, Mail, Truck, Save, Plus, Edit, Trash2 } from 'lucide-react';
+import { LogOut, Calendar, Package, MapPin, User, Phone, Mail, Truck, Save, Plus, Edit, Trash2, X } from 'lucide-react';
 
 interface ClientQuery {
   id: string;
@@ -1079,8 +1079,17 @@ export default function AdminDashboard() {
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">Main Product Image</label>
                             {editingProduct.image_url && (
-                              <div className="mb-2">
+                              <div className="mb-2 relative group inline-block">
                                 <img src={editingProduct.image_url} alt="Current main" className="w-32 h-32 object-cover rounded-lg" />
+                                <button
+                                  onClick={() => {
+                                    setEditingProduct({ ...editingProduct, image_url: '' });
+                                  }}
+                                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                                  title="Delete image"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
                                 <p className="text-xs text-gray-500 mt-1">Current image</p>
                               </div>
                             )}
@@ -1097,8 +1106,17 @@ export default function AdminDashboard() {
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">Image with Addon</label>
                             {editingProduct.image_with_addon_url && (
-                              <div className="mb-2">
+                              <div className="mb-2 relative group inline-block">
                                 <img src={editingProduct.image_with_addon_url} alt="Current addon" className="w-32 h-32 object-cover rounded-lg" />
+                                <button
+                                  onClick={() => {
+                                    setEditingProduct({ ...editingProduct, image_with_addon_url: '' });
+                                  }}
+                                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                                  title="Delete image"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
                                 <p className="text-xs text-gray-500 mt-1">Current image</p>
                               </div>
                             )}
@@ -1121,8 +1139,18 @@ export default function AdminDashboard() {
                             <p className="text-sm font-medium text-gray-700 mb-2">Current Gallery Images:</p>
                             <div className="grid grid-cols-4 gap-2">
                               {editingProduct.gallery_images.map((url, index) => (
-                                <div key={index} className="relative">
+                                <div key={index} className="relative group">
                                   <img src={url} alt={`Gallery ${index + 1}`} className="w-full h-24 object-cover rounded-lg" />
+                                  <button
+                                    onClick={() => {
+                                      const newGalleryImages = editingProduct.gallery_images?.filter((_, i) => i !== index) || [];
+                                      setEditingProduct({ ...editingProduct, gallery_images: newGalleryImages });
+                                    }}
+                                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                                    title="Delete image"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
                                 </div>
                               ))}
                             </div>

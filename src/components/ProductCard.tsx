@@ -1,6 +1,5 @@
 import { Plus, Minus } from 'lucide-react';
 import { Product, ProductAddon } from '../lib/supabase';
-import { useState } from 'react';
 
 // Import product images
 import chairDetail from '../images/products/chair/chairdetail.png';
@@ -28,45 +27,35 @@ export default function ProductCard({
   const baseTotal = product.base_price * quantity;
   const addonTotal = addonSelected && addon ? addon.price * quantity : 0;
   const totalPrice = baseTotal + addonTotal;
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
-  // Get all available images for the product
-  const getAllImages = () => {
-    const images: string[] = [];
-    
-    // Add main images based on addon selection
+  // Determine which image to show based on product type and addon selection
+  const getProductImage = () => {
+    // Use Firebase Storage images if available
     if (addonSelected && product.image_with_addon_url) {
-      images.push(product.image_with_addon_url);
-    } else if (product.image_url) {
-      images.push(product.image_url);
+      return product.image_with_addon_url;
+    }
+    if (product.image_url) {
+      return product.image_url;
+    }
+
+    // Fallback to hardcoded images for backward compatibility
+    const isChair = product.name.toLowerCase().includes('chair');
+    const isTable = product.name.toLowerCase().includes('table');
+    
+    if (isChair) {
+      return addonSelected ? chairCovered : chairDetail;
+    } else if (isTable) {
+      return addonSelected ? foldTableCovered : uncoveredTable;
     }
     
-    // Add gallery images if available
-    if (product.gallery_images && product.gallery_images.length > 0) {
-      images.push(...product.gallery_images);
-    }
-    
-    // Fallback to hardcoded images if no Firebase images
-    if (images.length === 0) {
-      const isChair = product.name.toLowerCase().includes('chair');
-      const isTable = product.name.toLowerCase().includes('table');
-      
-      if (isChair) {
-        images.push(addonSelected ? chairCovered : chairDetail);
-      } else if (isTable) {
-        images.push(addonSelected ? foldTableCovered : uncoveredTable);
-      }
-    }
-    
-    return images;
+    // Final fallback to product image_urls if available
+    return product.image_urls?.[0] || null;
   };
 
-  const allImages = getAllImages();
-  const currentImage = allImages[selectedImageIndex] || null;
+  const currentImage = getProductImage();
 
   return (
     <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transition-shadow">
-      {/* Main Image */}
       <div className="aspect-square bg-green-600 relative p-4">
         {currentImage ? (
           <img
@@ -80,31 +69,6 @@ export default function ProductCard({
           </div>
         )}
       </div>
-
-      {/* Thumbnail Images */}
-      {allImages.length > 1 && (
-        <div className="px-4 pt-4 pb-2 bg-gray-50">
-          <div className="flex gap-2 overflow-x-auto">
-            {allImages.map((image, index) => (
-              <button
-                key={index}
-                onClick={() => setSelectedImageIndex(index)}
-                className={`flex-shrink-0 w-16 h-16 rounded-lg border-2 transition-all ${
-                  selectedImageIndex === index
-                    ? 'border-green-600 ring-2 ring-green-200'
-                    : 'border-gray-300 hover:border-green-400'
-                }`}
-              >
-                <img
-                  src={image}
-                  alt={`${product.name} view ${index + 1}`}
-                  className="w-full h-full object-cover rounded-md"
-                />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="p-6">
         <h3 className="text-xl font-bold text-gray-900 mb-2">{product.name}</h3>
