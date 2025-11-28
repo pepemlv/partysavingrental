@@ -1,0 +1,63 @@
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const axios = require('axios');
+
+dotenv.config();
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const PORT = process.env.PORT || 5000;
+
+// POST /api/payment – Initiate payment request to Keccel
+app.post('/api/payment', async (req, res) => {
+  const {
+    mobilenumber,
+    reference,
+    amount,
+    currency,
+    description,
+    callbackurl
+  } = req.body;
+
+  // Validate required fields
+  if (!mobilenumber || !reference || !amount || !currency || !description || !callbackurl) {
+    return res.status(400).json({ code: 1, description: 'Missing required fields' });
+  }
+
+  // Prepare payload for Kelpay
+  const payload = {
+    merchantcode: process.env.MERCHANT_CODE,
+    mobilenumber,
+    reference,
+    amount,
+    currency,
+    description,
+    callbackurl
+  };
+
+  try {
+    const response = await axios.post(process.env.KELPAY_API_URL, payload, {
+      headers: {
+        Authorization: `Bearer ${process.env.KELPAY_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // Forward Keccel's response to the frontend
+    return res.status(200).json(response.data);
+  } catch (error) {
+    console.error('Kelpay API Error:', error?.response?.data || error.message);
+    return res.status(500).json({
+      code: 1,
+      description: 'Payment request failed',
+      error: error?.response?.data || error.message
+    });
+  }
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Kelpay API server running at http://localhost:${PORT}`);
+});

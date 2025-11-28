@@ -1,0 +1,27 @@
+{
+  "name": "party-rental-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "firebase": "^12.6.0",
+    "firebase-admin": "^12.0.0",
+    "stripe": "^12.18.0"
+  },
+  "scripts": {
+    "server-dev": "nodemon server.js",
+    "start": "npm run server-dev",
+    "prod": "node server.js",
+    "init-locations": "node initializeLocations.js",
+    "format": "npx prettier --write **/*.{js,jsx,md}",
+    "format:check": "npx prettier --check **/*.{js,jsx,md}"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.1",
+    "nodemon": "^3.0.1"
+  }
+}
