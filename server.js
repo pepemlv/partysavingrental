@@ -16,7 +16,12 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 // CORS configuration for production
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://partysavingrental.com', 'https://www.partysavingrental.com']
+    ? [
+        'https://partysavingrental.com', 
+        'https://www.partysavingrental.com',
+        'https://partysavingrental.vercel.app',
+        /\.vercel\.app$/  // Allow all Vercel preview deployments
+      ]
     : '*',
   credentials: true,
 };

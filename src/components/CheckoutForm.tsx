@@ -39,7 +39,15 @@ export default function CheckoutForm({ amount, customerInfo, onSuccess, onCancel
     try {
       // Create payment intent on your backend
       const apiUrl = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/create-payment-intent`, {
+      const fullUrl = `${apiUrl}/api/create-payment-intent`;
+      
+      console.log('🔵 Payment Request Details:');
+      console.log('  - API URL:', apiUrl);
+      console.log('  - Full Endpoint:', fullUrl);
+      console.log('  - Amount:', amount, '($' + amount.toFixed(2) + ')');
+      console.log('  - Customer:', customerInfo.name, customerInfo.email);
+      
+      const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -52,11 +60,23 @@ export default function CheckoutForm({ amount, customerInfo, onSuccess, onCancel
         }),
       });
 
+      console.log('🔵 Response Status:', response.status, response.statusText);
+
       if (!response.ok) {
-        throw new Error('Failed to create payment intent');
+        const errorText = await response.text();
+        console.error('❌ Backend Error Response:', errorText);
+        console.error('❌ TROUBLESHOOTING:');
+        console.error('   1. Check that VITE_API_URL is set in Vercel:', apiUrl || 'NOT SET!');
+        console.error('   2. Expected URL: https://partysavingrental.onrender.com');
+        console.error('   3. Actual URL used:', fullUrl);
+        console.error('   4. Render backend status: Check https://dashboard.render.com');
+        throw new Error(`Payment API Error (${response.status}): ${errorText || 'Failed to create payment intent'}`);
       }
 
       const { clientSecret } = await response.json();
+
+      console.log('✅ Payment Intent Created Successfully');
+      console.log('  - Client Secret received:', clientSecret ? 'Yes' : 'No');
 
       // Confirm the payment
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
@@ -71,15 +91,23 @@ export default function CheckoutForm({ amount, customerInfo, onSuccess, onCancel
       });
 
       if (error) {
+        console.error('❌ Stripe Payment Confirmation Error:', error);
         setErrorMessage(error.message || 'Payment failed. Please try again.');
         setIsProcessing(false);
       } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+        console.log('✅ Payment Succeeded!');
+        console.log('  - Payment Intent ID:', paymentIntent.id);
+        console.log('  - Amount:', paymentIntent.amount / 100);
         onSuccess(paymentIntent.id);
         setIsProcessing(false);
       }
     } catch (error) {
-      console.error('Payment error:', error);
-      setErrorMessage('An error occurred. Please try again.');
+      console.error('❌ Payment Error Details:', error);
+      console.error('❌ Error Type:', error instanceof Error ? error.constructor.name : typeof error);
+      console.error('❌ Error Message:', error instanceof Error ? error.message : String(error));
+      
+      const errorMsg = error instanceof Error ? error.message : 'An error occurred. Please try again.';
+      setErrorMessage(errorMsg);
       setIsProcessing(false);
     }
   };
