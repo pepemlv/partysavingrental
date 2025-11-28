@@ -120,34 +120,32 @@ function App() {
   }, []);
 
   async function loadProducts() {
-    const { data: productsData } = await supabase.from('products').select('*');
-    const { data: addonsData } = await supabase.from('product_addons').select('*');
-
-    if (productsData) {
-      setProducts(productsData);
-      const initialCart: CartItem[] = productsData.map((product) => ({
-        product,
-        quantity: 1,
-        addonSelected: false,
-      }));
-      setCartItems(initialCart);
-    }
-
-    if (addonsData) {
-      const addonMap: Record<string, ProductAddon> = {};
-      addonsData.forEach((addon) => {
-        addonMap[addon.product_id] = addon;
+    try {
+      const q = query(collection(db, 'products'), firestoreOrderBy('name'));
+      const querySnapshot = await getDocs(q);
+      const productsData: Product[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        productsData.push({ id: doc.id, ...doc.data() } as Product);
       });
-      setAddons(addonMap);
 
-      if (productsData) {
-        setCartItems((prev) =>
-          prev.map((item) => ({
-            ...item,
-            addon: addonMap[item.product.id],
-          }))
-        );
+      if (productsData.length > 0) {
+        setProducts(productsData);
+        const initialCart: CartItem[] = productsData.map((product) => ({
+          product,
+          quantity: 1,
+          addonSelected: false,
+          addon: product.addon ? {
+            id: product.id,
+            product_id: product.id,
+            name: product.addon.name,
+            price: product.addon.price,
+          } : undefined,
+        }));
+        setCartItems(initialCart);
       }
+    } catch (error) {
+      console.error('Error loading products:', error);
     }
   }
 

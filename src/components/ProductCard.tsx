@@ -30,6 +30,15 @@ export default function ProductCard({
 
   // Determine which image to show based on product type and addon selection
   const getProductImage = () => {
+    // Use Firebase Storage images if available
+    if (addonSelected && product.image_with_addon_url) {
+      return product.image_with_addon_url;
+    }
+    if (product.image_url) {
+      return product.image_url;
+    }
+
+    // Fallback to hardcoded images for backward compatibility
     const isChair = product.name.toLowerCase().includes('chair');
     const isTable = product.name.toLowerCase().includes('table');
     
@@ -39,7 +48,7 @@ export default function ProductCard({
       return addonSelected ? foldTableCovered : uncoveredTable;
     }
     
-    // Fallback to product image URL if available
+    // Final fallback to product image_urls if available
     return product.image_urls?.[0] || null;
   };
 

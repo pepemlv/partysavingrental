@@ -19,8 +19,15 @@ export interface Product {
   name: string;
   description: string;
   base_price: number;
-  image_url: string;
+  image_url?: string;
+  image_urls?: string[];
+  image_with_addon_url?: string;
   category: string;
+  addon?: {
+    name: string;
+    price: number;
+  };
+  price?: number;
 }
 
 export interface ProductAddon {

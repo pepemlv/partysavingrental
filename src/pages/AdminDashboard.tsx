@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../lib/firebase.ts';
-import { collection, getDocs, query, orderBy, doc, updateDoc, addDoc } from 'firebase/firestore';
-import { LogOut, Calendar, Package, DollarSign, MapPin, User, Phone, Mail, Truck, Settings, Save, Plus } from 'lucide-react';
+import { db, storage } from '../lib/firebase.ts';
+import { collection, getDocs, query, orderBy, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { LogOut, Calendar, Package, MapPin, User, Phone, Mail, Truck, Save, Plus, Edit, Trash2 } from 'lucide-react';
 
 interface ClientQuery {
   id: string;
@@ -42,15 +43,32 @@ interface City {
   longitude: number;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  description: string;
+  base_price: number;
+  category: string;
+  image_url?: string;
+  image_with_addon_url?: string;
+  addon?: {
+    name: string;
+    price: number;
+  };
+}
+
 export default function AdminDashboard() {
   const [queries, setQueries] = useState<ClientQuery[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedQuery, setSelectedQuery] = useState<ClientQuery | null>(null);
-  const [activeTab, setActiveTab] = useState<'requests' | 'cities'>('requests');
+  const [activeTab, setActiveTab] = useState<'requests' | 'cities' | 'products'>('requests');
   const [cities, setCities] = useState<City[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [editingCity, setEditingCity] = useState<City | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
   const [isAddingCity, setIsAddingCity] = useState(false);
+  const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [newCity, setNewCity] = useState<Omit<City, 'id'>>({
     name: '',
     state: '',
@@ -58,6 +76,19 @@ export default function AdminDashboard() {
     latitude: 0,
     longitude: 0,
   });
+  const [newProduct, setNewProduct] = useState<Omit<Product, 'id'>>({
+    name: '',
+    description: '',
+    base_price: 0,
+    category: 'furniture',
+    addon: {
+      name: '',
+      price: 0,
+    },
+  });
+  const [mainImageFile, setMainImageFile] = useState<File | null>(null);
+  const [addonImageFile, setAddonImageFile] = useState<File | null>(null);
+  const [uploadingImages, setUploadingImages] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -70,7 +101,24 @@ export default function AdminDashboard() {
 
     loadQueries();
     loadCities();
+    loadProducts();
   }, [navigate]);
+
+  const loadProducts = async () => {
+    try {
+      const q = query(collection(db, 'products'), orderBy('name'));
+      const querySnapshot = await getDocs(q);
+      const data: Product[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        data.push({ id: doc.id, ...doc.data() } as Product);
+      });
+      
+      setProducts(data);
+    } catch (error) {
+      console.error('Error loading products:', error);
+    }
+  };
 
   const loadCities = async () => {
     try {
@@ -156,6 +204,124 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAddProduct = async () => {
+    try {
+      setUploadingImages(true);
+      let mainImageUrl = '';
+      let addonImageUrl = '';
+
+      // Upload main image if selected
+      if (mainImageFile) {
+        const mainImageRef = ref(storage, `products/${Date.now()}_${mainImageFile.name}`);
+        await uploadBytes(mainImageRef, mainImageFile);
+        mainImageUrl = await getDownloadURL(mainImageRef);
+      }
+
+      // Upload addon image if selected
+      if (addonImageFile) {
+        const addonImageRef = ref(storage, `products/${Date.now()}_addon_${addonImageFile.name}`);
+        await uploadBytes(addonImageRef, addonImageFile);
+        addonImageUrl = await getDownloadURL(addonImageRef);
+      }
+
+      await addDoc(collection(db, 'products'), {
+        name: newProduct.name,
+        description: newProduct.description,
+        base_price: newProduct.base_price,
+        category: newProduct.category,
+        addon: newProduct.addon && newProduct.addon.name ? newProduct.addon : null,
+        image_url: mainImageUrl,
+        image_with_addon_url: addonImageUrl,
+      });
+
+      setSaveMessage('Product added successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+      setIsAddingProduct(false);
+      setNewProduct({
+        name: '',
+        description: '',
+        base_price: 0,
+        category: 'furniture',
+        addon: {
+          name: '',
+          price: 0,
+        },
+        image_url: '',
+        image_with_addon_url: '',
+      });
+      setMainImageFile(null);
+      setAddonImageFile(null);
+      setUploadingImages(false);
+      loadProducts();
+    } catch (error) {
+      console.error('Error adding product:', error);
+      setSaveMessage('Error adding product');
+      setTimeout(() => setSaveMessage(''), 3000);
+      setUploadingImages(false);
+    }
+  };
+
+  const handleUpdateProduct = async (product: Product) => {
+    try {
+      setUploadingImages(true);
+      let mainImageUrl = product.image_url || '';
+      let addonImageUrl = product.image_with_addon_url || '';
+
+      // Upload new main image if selected
+      if (mainImageFile) {
+        const mainImageRef = ref(storage, `products/${Date.now()}_${mainImageFile.name}`);
+        await uploadBytes(mainImageRef, mainImageFile);
+        mainImageUrl = await getDownloadURL(mainImageRef);
+      }
+
+      // Upload new addon image if selected
+      if (addonImageFile) {
+        const addonImageRef = ref(storage, `products/${Date.now()}_addon_${addonImageFile.name}`);
+        await uploadBytes(addonImageRef, addonImageFile);
+        addonImageUrl = await getDownloadURL(addonImageRef);
+      }
+
+      const productRef = doc(db, 'products', product.id);
+      await updateDoc(productRef, {
+        name: product.name,
+        description: product.description,
+        base_price: product.base_price,
+        category: product.category,
+        addon: product.addon && product.addon.name ? product.addon : null,
+        image_url: mainImageUrl,
+        image_with_addon_url: addonImageUrl,
+      });
+
+      setSaveMessage('Product updated successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+      setEditingProduct(null);
+      setMainImageFile(null);
+      setAddonImageFile(null);
+      setUploadingImages(false);
+      loadProducts();
+    } catch (error) {
+      console.error('Error updating product:', error);
+      setSaveMessage('Error updating product');
+      setTimeout(() => setSaveMessage(''), 3000);
+      setUploadingImages(false);
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (!confirm('Are you sure you want to delete this product?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'products', productId));
+      setSaveMessage('Product deleted successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+      loadProducts();
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      setSaveMessage('Error deleting product');
+      setTimeout(() => setSaveMessage(''), 3000);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('isAdminAuthenticated');
     navigate('/admin');
@@ -219,8 +385,19 @@ export default function AdminDashboard() {
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  <Settings className="w-4 h-4" />
-                  Manage Cities
+                  <MapPin className="w-4 h-4" />
+                  Cities
+                </button>
+                <button
+                  onClick={() => setActiveTab('products')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    activeTab === 'products'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Package className="w-4 h-4" />
+                  Products
                 </button>
               </div>
             </div>
@@ -611,6 +788,384 @@ export default function AdminDashboard() {
                         >
                           Edit
                         </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {activeTab === 'products' && (
+          <>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">Product Management</h2>
+                {!isAddingProduct && (
+                  <button
+                    onClick={() => setIsAddingProduct(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Add New Product
+                  </button>
+                )}
+              </div>
+
+              {saveMessage && (
+                <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+                  {saveMessage}
+                </div>
+              )}
+
+              {isAddingProduct && (
+                <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-200 rounded-xl">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Product</h3>
+                  <div className="space-y-4">
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Product Name</label>
+                        <input
+                          type="text"
+                          value={newProduct.name}
+                          onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                          placeholder="Folding Chair"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                        <input
+                          type="text"
+                          value={newProduct.category}
+                          onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+                          placeholder="furniture"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                      <textarea
+                        value={newProduct.description}
+                        onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+                        placeholder="Comfortable folding chair for your event"
+                        rows={3}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Base Price ($)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newProduct.base_price}
+                        onChange={(e) => setNewProduct({ ...newProduct, base_price: parseFloat(e.target.value) || 0 })}
+                        placeholder="1.88"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="border-t pt-4">
+                      <h4 className="text-md font-semibold text-gray-800 mb-3">Product Images</h4>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Main Product Image</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => setMainImageFile(e.target.files?.[0] || null)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                          {mainImageFile && (
+                            <p className="text-sm text-green-600 mt-1">✓ {mainImageFile.name}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Image with Addon</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => setAddonImageFile(e.target.files?.[0] || null)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                          {addonImageFile && (
+                            <p className="text-sm text-green-600 mt-1">✓ {addonImageFile.name}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-t pt-4">
+                      <h4 className="text-md font-semibold text-gray-800 mb-3">Addon Details</h4>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Addon Name</label>
+                          <input
+                            type="text"
+                            value={newProduct.addon?.name || ''}
+                            onChange={(e) => setNewProduct({ 
+                              ...newProduct, 
+                              addon: { 
+                                name: e.target.value, 
+                                price: newProduct.addon?.price || 0 
+                              } 
+                            })}
+                            placeholder="Add cloth cover"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Addon Price ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={newProduct.addon?.price || 0}
+                            onChange={(e) => setNewProduct({ 
+                              ...newProduct, 
+                              addon: { 
+                                name: newProduct.addon?.name || '', 
+                                price: parseFloat(e.target.value) || 0 
+                              } 
+                            })}
+                            placeholder="1.00"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleAddProduct}
+                        disabled={uploadingImages}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      >
+                        {uploadingImages ? 'Uploading Images...' : 'Add Product'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsAddingProduct(false);
+                          setNewProduct({
+                            name: '',
+                            description: '',
+                            base_price: 0,
+                            category: 'furniture',
+                            addon: { name: '', price: 0 },
+                          });
+                          setMainImageFile(null);
+                          setAddonImageFile(null);
+                        }}
+                        disabled={uploadingImages}
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {products.map((product) => (
+                <div key={product.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  {editingProduct?.id === product.id ? (
+                    <div className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Product Name</label>
+                          <input
+                            type="text"
+                            value={editingProduct.name}
+                            onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                          <input
+                            type="text"
+                            value={editingProduct.category}
+                            onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                        <textarea
+                          value={editingProduct.description}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })}
+                          rows={3}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Base Price ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editingProduct.base_price}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, base_price: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        />
+                      </div>
+                      <div className="border-t pt-4">
+                        <h4 className="text-md font-semibold text-gray-800 mb-3">Product Images</h4>
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Main Product Image</label>
+                            {editingProduct.image_url && (
+                              <div className="mb-2">
+                                <img src={editingProduct.image_url} alt="Current main" className="w-32 h-32 object-cover rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Current image</p>
+                              </div>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => setMainImageFile(e.target.files?.[0] || null)}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                            />
+                            {mainImageFile && (
+                              <p className="text-sm text-green-600 mt-1">✓ New image: {mainImageFile.name}</p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Image with Addon</label>
+                            {editingProduct.image_with_addon_url && (
+                              <div className="mb-2">
+                                <img src={editingProduct.image_with_addon_url} alt="Current addon" className="w-32 h-32 object-cover rounded-lg" />
+                                <p className="text-xs text-gray-500 mt-1">Current image</p>
+                              </div>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => setAddonImageFile(e.target.files?.[0] || null)}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                            />
+                            {addonImageFile && (
+                              <p className="text-sm text-green-600 mt-1">✓ New image: {addonImageFile.name}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="border-t pt-4">
+                        <h4 className="text-md font-semibold text-gray-800 mb-3">Addon Details</h4>
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Addon Name</label>
+                            <input
+                              type="text"
+                              value={editingProduct.addon?.name || ''}
+                              onChange={(e) => setEditingProduct({ 
+                                ...editingProduct, 
+                                addon: { 
+                                  name: e.target.value, 
+                                  price: editingProduct.addon?.price || 0 
+                                } 
+                              })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Addon Price ($)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editingProduct.addon?.price || 0}
+                              onChange={(e) => setEditingProduct({ 
+                                ...editingProduct, 
+                                addon: { 
+                                  name: editingProduct.addon?.name || '', 
+                                  price: parseFloat(e.target.value) || 0 
+                                } 
+                              })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleUpdateProduct(editingProduct)}
+                          disabled={uploadingImages}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                          <Save className="w-4 h-4" />
+                          {uploadingImages ? 'Uploading...' : 'Save Changes'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingProduct(null);
+                            setMainImageFile(null);
+                            setAddonImageFile(null);
+                          }}
+                          disabled={uploadingImages}
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900">{product.name}</h3>
+                          <p className="text-sm text-gray-600 mt-1">{product.description}</p>
+                          
+                          {/* Product Images Display */}
+                          {(product.image_url || product.image_with_addon_url) && (
+                            <div className="mt-3 flex gap-4">
+                              {product.image_url && (
+                                <div>
+                                  <img src={product.image_url} alt={product.name} className="w-24 h-24 object-cover rounded-lg border-2 border-gray-200" />
+                                  <p className="text-xs text-gray-500 mt-1 text-center">Main</p>
+                                </div>
+                              )}
+                              {product.image_with_addon_url && (
+                                <div>
+                                  <img src={product.image_with_addon_url} alt={`${product.name} with addon`} className="w-24 h-24 object-cover rounded-lg border-2 border-gray-200" />
+                                  <p className="text-xs text-gray-500 mt-1 text-center">With Addon</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          <div className="mt-3 flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <Package className="w-4 h-4 text-gray-600" />
+                              <span className="text-sm text-gray-600">Category: {product.category}</span>
+                            </div>
+                            <div className="text-sm font-semibold text-green-600">
+                              Base Price: ${product.base_price.toFixed(2)}
+                            </div>
+                          </div>
+                          {product.addon && product.addon.name && (
+                            <div className="mt-2 inline-block px-3 py-1 bg-blue-50 border border-blue-200 rounded-lg">
+                              <span className="text-sm text-blue-700">
+                                Addon: {product.addon.name} (+${product.addon.price.toFixed(2)})
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingProduct(product)}
+                            className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                          >
+                            <Edit className="w-4 h-4" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(product.id)}
+                            className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
