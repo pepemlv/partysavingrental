@@ -371,44 +371,54 @@ function App() {
            <section className="mb-16">
           <h2 className="text-4xl font-bold text-gray-900 mb-12 text-center">Our Products</h2>
           <div className="grid md:grid-cols-2 gap-8">
-            {products.map((product) => (
-              <div key={product.id} className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
-                <div className="p-8">
-                  {/* Main large image at top */}
-                  {product.image_urls && product.image_urls.length > 0 && (
-                    <div className="mb-6 aspect-video rounded-xl overflow-hidden bg-green-600">
-                      <img
-                        src={product.image_urls[0]}
-                        alt={product.name}
-                        className="w-full h-full object-contain p-4"
-                      />
+            {products.map((product) => {
+              // Get all images: main, addon, and gallery
+              const allImages: string[] = [];
+              if (product.image_url) allImages.push(product.image_url);
+              if (product.image_with_addon_url) allImages.push(product.image_with_addon_url);
+              if (product.gallery_images && product.gallery_images.length > 0) {
+                allImages.push(...product.gallery_images);
+              }
+              
+              return (
+                <div key={product.id} className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+                  <div className="p-8">
+                    {/* Main large image at top */}
+                    {allImages.length > 0 && (
+                      <div className="mb-6 aspect-video rounded-xl overflow-hidden bg-green-600">
+                        <img
+                          src={allImages[0]}
+                          alt={product.name}
+                          className="w-full h-full object-contain p-4"
+                        />
+                      </div>
+                    )}
+                    
+                    {/* Product info */}
+                    <div className="mb-6">
+                      <h3 className="text-2xl font-bold text-gray-900 mb-2">{product.name}</h3>
+                      <p className="text-3xl font-bold text-green-600 mb-4">${product.base_price?.toFixed(2)}</p>
+                      <p className="text-gray-600 leading-relaxed">{product.description}</p>
                     </div>
-                  )}
-                  
-                  {/* Product info */}
-                  <div className="mb-6">
-                    <h3 className="text-2xl font-bold text-gray-900 mb-2">{product.name}</h3>
-                    <p className="text-3xl font-bold text-green-600 mb-4">${product.price}</p>
-                    <p className="text-gray-600 leading-relaxed">{product.description}</p>
+                    
+                    {/* Small thumbnail images at bottom */}
+                    {allImages.length > 1 && (
+                      <div className="grid grid-cols-4 gap-2">
+                        {allImages.slice(0, 4).map((url: string, idx: number) => (
+                          <div key={idx} className="aspect-square rounded-lg overflow-hidden bg-green-600 cursor-pointer">
+                            <img
+                              src={url}
+                              alt={`${product.name} ${idx + 1}`}
+                              className="w-full h-full object-contain p-2 hover:scale-110 transition-transform duration-300"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  
-                  {/* Small thumbnail images at bottom */}
-                  {product.image_urls && product.image_urls.length > 1 && (
-                    <div className="grid grid-cols-4 gap-2">
-                      {product.image_urls.slice(0, 4).map((url: string, idx: number) => (
-                        <div key={idx} className="aspect-square rounded-lg overflow-hidden bg-green-600">
-                          <img
-                            src={url}
-                            alt={`${product.name} ${idx + 1}`}
-                            className="w-full h-full object-contain p-2 hover:scale-110 transition-transform duration-300"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>
