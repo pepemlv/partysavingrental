@@ -1,6 +1,12 @@
 import { Plus, Minus } from 'lucide-react';
 import { Product, ProductAddon } from '../lib/supabase';
 
+// Import product images
+import chairDetail from '../images/products/chair/chairdetail.png';
+import chairCovered from '../images/products/chair/chaircovered.png';
+import uncoveredTable from '../images/products/table/uncoveredtable.png';
+import foldTableCovered from '../images/products/table/foldtablecovered.png';
+
 interface ProductCardProps {
   product: Product;
   addon?: ProductAddon;
@@ -22,14 +28,31 @@ export default function ProductCard({
   const addonTotal = addonSelected && addon ? addon.price * quantity : 0;
   const totalPrice = baseTotal + addonTotal;
 
+  // Determine which image to show based on product type and addon selection
+  const getProductImage = () => {
+    const isChair = product.name.toLowerCase().includes('chair');
+    const isTable = product.name.toLowerCase().includes('table');
+    
+    if (isChair) {
+      return addonSelected ? chairCovered : chairDetail;
+    } else if (isTable) {
+      return addonSelected ? foldTableCovered : uncoveredTable;
+    }
+    
+    // Fallback to product image URL if available
+    return product.image_urls?.[0] || null;
+  };
+
+  const currentImage = getProductImage();
+
   return (
     <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transition-shadow">
-      <div className="aspect-square bg-gradient-to-br from-green-50 to-green-100 relative">
-        {product.image_urls && product.image_urls.length > 0 ? (
+      <div className="aspect-square bg-green-600 relative p-4">
+        {currentImage ? (
           <img
-            src={product.image_urls[0]}
+            src={currentImage}
             alt={product.name}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain transition-all duration-300"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">

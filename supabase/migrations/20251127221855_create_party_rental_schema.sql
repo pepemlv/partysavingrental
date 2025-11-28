@@ -180,8 +180,8 @@ ON CONFLICT DO NOTHING;
 
 -- Insert sample products
 INSERT INTO products (name, description, base_price, category) VALUES
-  ('Uncovered Folding Table', 'Sturdy folding table for your event', 9.88, 'furniture'),
-  ('Uncovered Folding Chair', 'Comfortable folding chair for your event', 1.88, 'furniture')
+  ('Folding Table', 'Sturdy folding table for your event', 9.88, 'furniture'),
+  ('Folding Chair', 'Comfortable folding chair for your event', 1.88, 'furniture')
 ON CONFLICT DO NOTHING;
 
 -- Insert product addons
@@ -189,13 +189,13 @@ INSERT INTO product_addons (product_id, name, price)
 SELECT 
   p.id,
   CASE 
-    WHEN p.name = 'Uncovered Folding Table' THEN 'Add cloth cover'
-    WHEN p.name = 'Uncovered Folding Chair' THEN 'Add cloth cover'
+    WHEN p.name = 'Folding Table' THEN 'Add cloth cover'
+    WHEN p.name = 'Folding Chair' THEN 'Add cloth cover'
   END,
   CASE 
-    WHEN p.name = 'Uncovered Folding Table' THEN 2.00
-    WHEN p.name = 'Uncovered Folding Chair' THEN 1.00
+    WHEN p.name = 'Folding Table' THEN 2.00
+    WHEN p.name = 'Folding Chair' THEN 1.00
   END
 FROM products p
-WHERE p.name IN ('Uncovered Folding Table', 'Uncovered Folding Chair')
+WHERE p.name IN ('Folding Table', 'Folding Chair')
 ON CONFLICT DO NOTHING;
