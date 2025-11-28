@@ -36,7 +36,7 @@ function App() {
   const handlePaymentSuccess = async (paymentIntentId: string) => {
     console.log('Payment successful:', paymentIntentId);
     
-    // Save payment info to Firestore
+    // Save complete reservation to Firestore
     try {
       const subtotal = cartItems.reduce((sum, item) => {
         const baseTotal = item.product.base_price * item.quantity * rentalDays;
@@ -46,20 +46,69 @@ function App() {
       const tax = subtotal * TAX_RATE;
       const total = subtotal + tax + deliveryFee + collectionFee;
 
-      await addDoc(collection(db, 'payments'), {
+      // Prepare cart data
+      const cartData = cartItems
+        .filter(item => item.quantity > 0)
+        .map(item => ({
+          productName: item.product.name,
+          quantity: item.quantity,
+          basePrice: item.product.base_price,
+          addonSelected: item.addonSelected,
+          addonName: item.addon?.name || null,
+          addonPrice: item.addon?.price || 0,
+        }));
+
+      // Save to paidreservation collection
+      await addDoc(collection(db, 'paidreservation'), {
         paymentIntentId,
         customerName,
         customerEmail,
         customerPhone,
-        amount: total,
         eventDate,
         rentalDays,
+        deliveryMethod,
+        address: deliveryMethod === 'delivery' ? {
+          street: eventAddress,
+          state: eventState,
+          zipcode: eventZipcode,
+          fullAddress: `${eventAddress}, ${eventState} ${eventZipcode}`,
+          validated: validatedAddress,
+        } : null,
+        selectedCity: selectedCity?.name || '',
+        pickupAddress: selectedCity?.pickup_address || '',
+        distance: distanceMiles,
+        cart: cartData,
+        pricing: {
+          subtotal,
+          tax,
+          deliveryFee,
+          collectionFee,
+          total,
+        },
+        status: 'confirmed',
         createdAt: serverTimestamp(),
       });
 
-      alert('Payment successful! Your booking has been confirmed. We will contact you shortly with delivery details.');
+      console.log('✅ Reservation saved to paidreservation collection');
+
+      // Clear the form
+      setCartItems(prev => prev.map(item => ({ ...item, quantity: 1, addonSelected: false })));
+      setRentalDays(1);
+      setEventDate(new Date().toISOString().split('T')[0]);
+      setEventAddress('');
+      setEventState('');
+      setEventZipcode('');
+      setCustomerName('');
+      setCustomerPhone('');
+      setCustomerEmail('');
+      setDistanceMiles(0);
+      setIsAddressValid(false);
+      setValidatedAddress(null);
+      setDeliveryMethod('pickup');
+
+      alert('🎉 Payment successful! Your booking has been confirmed. We will contact you shortly with delivery details.');
     } catch (error) {
-      console.error('Error saving payment info:', error);
+      console.error('Error saving reservation:', error);
       alert('Payment successful! Your booking has been confirmed.');
     }
   };
