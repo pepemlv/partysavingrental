@@ -1,4 +1,20 @@
+import { useState, useEffect } from 'react';
 import { DollarSign, MapPin, Package, Users } from 'lucide-react';
+
+// Import hero images
+import coveredchair1 from '../images/heros/coveredchair1.jpg';
+import partysavphoto from '../images/heros/partysavphoto.webp';
+import parysavingphoto from '../images/heros/parysavingphoto.webp';
+import patysavingphoto from '../images/heros/patysavingphoto.webp';
+import savingphoto from '../images/heros/savingphoto.webp';
+
+const heroImages = [
+  coveredchair1,
+  partysavphoto,
+  parysavingphoto,
+  patysavingphoto,
+  savingphoto,
+];
 
 interface FeatureCardProps {
   icon: React.ReactNode;
@@ -23,9 +39,39 @@ function FeatureCard({ icon, title, description }: FeatureCardProps) {
 }
 
 export default function Hero() {
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prevIndex) => (prevIndex + 1) % heroImages.length);
+    }, 5000); // Change image every 5 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="bg-gradient-to-br from-green-600 via-green-700 to-green-800 text-white min-h-[80vh] flex items-center">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 w-full">
+    <div className="relative bg-gradient-to-br from-green-600 via-green-700 to-green-800 text-white min-h-[80vh] flex items-center overflow-hidden">
+      {/* Background image carousel */}
+      <div className="absolute inset-0">
+        {heroImages.map((image, index) => (
+          <div
+            key={index}
+            className={`absolute inset-0 transition-opacity duration-1000 ${
+              index === currentImageIndex ? 'opacity-30' : 'opacity-0'
+            }`}
+          >
+            <img
+              src={image}
+              alt={`Hero ${index + 1}`}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        ))}
+        <div className="absolute inset-0 bg-gradient-to-br from-green-600/80 via-green-700/80 to-green-800/80"></div>
+      </div>
+
+      {/* Content */}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 w-full">
         <div className="text-center mb-12">
           <h1 className="text-5xl sm:text-6xl font-bold mb-4 leading-tight">
             Party Saving Rental
