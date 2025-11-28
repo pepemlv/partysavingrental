@@ -51,6 +51,7 @@ interface Product {
   category: string;
   image_url?: string;
   image_with_addon_url?: string;
+  gallery_images?: string[];
   addon?: {
     name: string;
     price: number;
@@ -88,6 +89,7 @@ export default function AdminDashboard() {
   });
   const [mainImageFile, setMainImageFile] = useState<File | null>(null);
   const [addonImageFile, setAddonImageFile] = useState<File | null>(null);
+  const [galleryImageFiles, setGalleryImageFiles] = useState<File[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
   const navigate = useNavigate();
 
@@ -209,6 +211,7 @@ export default function AdminDashboard() {
       setUploadingImages(true);
       let mainImageUrl = '';
       let addonImageUrl = '';
+      const galleryUrls: string[] = [];
 
       // Upload main image if selected
       if (mainImageFile) {
@@ -224,6 +227,16 @@ export default function AdminDashboard() {
         addonImageUrl = await getDownloadURL(addonImageRef);
       }
 
+      // Upload gallery images if selected
+      if (galleryImageFiles.length > 0) {
+        for (const file of galleryImageFiles) {
+          const galleryImageRef = ref(storage, `products/gallery/${Date.now()}_${file.name}`);
+          await uploadBytes(galleryImageRef, file);
+          const url = await getDownloadURL(galleryImageRef);
+          galleryUrls.push(url);
+        }
+      }
+
       await addDoc(collection(db, 'products'), {
         name: newProduct.name,
         description: newProduct.description,
@@ -232,6 +245,7 @@ export default function AdminDashboard() {
         addon: newProduct.addon && newProduct.addon.name ? newProduct.addon : null,
         image_url: mainImageUrl,
         image_with_addon_url: addonImageUrl,
+        gallery_images: galleryUrls,
       });
 
       setSaveMessage('Product added successfully!');
@@ -251,6 +265,7 @@ export default function AdminDashboard() {
       });
       setMainImageFile(null);
       setAddonImageFile(null);
+      setGalleryImageFiles([]);
       setUploadingImages(false);
       loadProducts();
     } catch (error) {
@@ -266,6 +281,7 @@ export default function AdminDashboard() {
       setUploadingImages(true);
       let mainImageUrl = product.image_url || '';
       let addonImageUrl = product.image_with_addon_url || '';
+      let galleryUrls = product.gallery_images || [];
 
       // Upload new main image if selected
       if (mainImageFile) {
@@ -281,6 +297,18 @@ export default function AdminDashboard() {
         addonImageUrl = await getDownloadURL(addonImageRef);
       }
 
+      // Upload new gallery images if selected
+      if (galleryImageFiles.length > 0) {
+        const newGalleryUrls: string[] = [];
+        for (const file of galleryImageFiles) {
+          const galleryImageRef = ref(storage, `products/gallery/${Date.now()}_${file.name}`);
+          await uploadBytes(galleryImageRef, file);
+          const url = await getDownloadURL(galleryImageRef);
+          newGalleryUrls.push(url);
+        }
+        galleryUrls = [...galleryUrls, ...newGalleryUrls];
+      }
+
       const productRef = doc(db, 'products', product.id);
       await updateDoc(productRef, {
         name: product.name,
@@ -290,6 +318,7 @@ export default function AdminDashboard() {
         addon: product.addon && product.addon.name ? product.addon : null,
         image_url: mainImageUrl,
         image_with_addon_url: addonImageUrl,
+        gallery_images: galleryUrls,
       });
 
       setSaveMessage('Product updated successfully!');
@@ -297,6 +326,7 @@ export default function AdminDashboard() {
       setEditingProduct(null);
       setMainImageFile(null);
       setAddonImageFile(null);
+      setGalleryImageFiles([]);
       setUploadingImages(false);
       loadProducts();
     } catch (error) {
@@ -896,6 +926,39 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="border-t pt-4">
+                      <h4 className="text-md font-semibold text-gray-800 mb-3">Gallery Images (Multiple)</h4>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Upload Multiple Images for Product Gallery
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            setGalleryImageFiles(files);
+                          }}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                        {galleryImageFiles.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            <p className="text-sm font-semibold text-green-600">
+                              ✓ {galleryImageFiles.length} image(s) selected:
+                            </p>
+                            <ul className="text-xs text-gray-600 list-disc list-inside">
+                              {galleryImageFiles.map((file, index) => (
+                                <li key={index}>{file.name}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          These images will appear in the "Our Products" section on the website
+                        </p>
+                      </div>
+                    </div>
+                    <div className="border-t pt-4">
                       <h4 className="text-md font-semibold text-gray-800 mb-3">Addon Details</h4>
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
@@ -953,6 +1016,7 @@ export default function AdminDashboard() {
                           });
                           setMainImageFile(null);
                           setAddonImageFile(null);
+                          setGalleryImageFiles([]);
                         }}
                         disabled={uploadingImages}
                         className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
@@ -1051,6 +1115,51 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                       <div className="border-t pt-4">
+                        <h4 className="text-md font-semibold text-gray-800 mb-3">Gallery Images</h4>
+                        {editingProduct.gallery_images && editingProduct.gallery_images.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-sm font-medium text-gray-700 mb-2">Current Gallery Images:</p>
+                            <div className="grid grid-cols-4 gap-2">
+                              {editingProduct.gallery_images.map((url, index) => (
+                                <div key={index} className="relative">
+                                  <img src={url} alt={`Gallery ${index + 1}`} className="w-full h-24 object-cover rounded-lg" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Add More Gallery Images
+                          </label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || []);
+                              setGalleryImageFiles(files);
+                            }}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          />
+                          {galleryImageFiles.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-sm font-semibold text-green-600">
+                                ✓ {galleryImageFiles.length} new image(s) to add:
+                              </p>
+                              <ul className="text-xs text-gray-600 list-disc list-inside">
+                                {galleryImageFiles.map((file, index) => (
+                                  <li key={index}>{file.name}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1">
+                            New images will be added to existing gallery images
+                          </p>
+                        </div>
+                      </div>
+                      <div className="border-t pt-4">
                         <h4 className="text-md font-semibold text-gray-800 mb-3">Addon Details</h4>
                         <div className="grid md:grid-cols-2 gap-4">
                           <div>
@@ -1100,6 +1209,7 @@ export default function AdminDashboard() {
                             setEditingProduct(null);
                             setMainImageFile(null);
                             setAddonImageFile(null);
+                            setGalleryImageFiles([]);
                           }}
                           disabled={uploadingImages}
                           className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
@@ -1130,6 +1240,26 @@ export default function AdminDashboard() {
                                   <p className="text-xs text-gray-500 mt-1 text-center">With Addon</p>
                                 </div>
                               )}
+                            </div>
+                          )}
+                          
+                          {/* Gallery Images Display */}
+                          {product.gallery_images && product.gallery_images.length > 0 && (
+                            <div className="mt-4">
+                              <p className="text-sm font-medium text-gray-700 mb-2">
+                                Gallery Images ({product.gallery_images.length}):
+                              </p>
+                              <div className="grid grid-cols-6 gap-2">
+                                {product.gallery_images.map((url, index) => (
+                                  <div key={index}>
+                                    <img 
+                                      src={url} 
+                                      alt={`Gallery ${index + 1}`} 
+                                      className="w-full h-16 object-cover rounded-lg border-2 border-gray-200" 
+                                    />
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
                           

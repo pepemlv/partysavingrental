@@ -22,6 +22,7 @@ export interface Product {
   image_url?: string;
   image_urls?: string[];
   image_with_addon_url?: string;
+  gallery_images?: string[];
   category: string;
   addon?: {
     name: string;
