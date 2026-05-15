@@ -29,6 +29,14 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Party Saver Rentals API is running',
+    health: '/api/health',
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Payment server is running' });
