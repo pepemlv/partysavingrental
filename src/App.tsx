@@ -233,11 +233,18 @@ function App() {
       const apiUrl = import.meta.env.VITE_API_URL || '';
       const adminEmails = await getCityAdminEmails(selectedCity);
 
-      await fetch(`${apiUrl}/api/send-order-alert`, {
+      const response = await fetch(`${apiUrl}/api/send-order-alert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order, adminEmails }),
       });
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        console.error('Paid order alert failed:', response.status, responseText);
+      } else {
+        console.log('Paid order alert response:', responseText);
+      }
     } catch (error) {
       console.error('Error sending paid order alert:', error);
     }

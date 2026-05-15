@@ -157,7 +157,7 @@ const sendEmailWithSmtp = async ({ fromEmail, recipients, subject, html }) => {
     html,
   });
 
-  return { sent: true };
+  return { sent: true, provider: 'smtp' };
 };
 
 const sendEmailWithResend = async ({ fromEmail, recipients, subject, html }) => {
@@ -186,7 +186,7 @@ const sendEmailWithResend = async ({ fromEmail, recipients, subject, html }) => 
     throw new Error(errorText || 'Resend email failed');
   }
 
-  return { sent: true };
+  return { sent: true, provider: 'resend' };
 };
 
 app.post('/api/send-order-alert', async (req, res) => {
@@ -203,6 +203,17 @@ app.post('/api/send-order-alert', async (req, res) => {
       return res.status(400).json({ error: 'Order is required' });
     }
 
+    console.log('Order alert request received:', {
+      selectedCity: order.selectedCity || '',
+      paymentIntentId: order.paymentIntentId || '',
+      superAdminCount: superAdminEmails.length,
+      cityAdminCount: adminEmails.length,
+      recipientCount: recipients.length,
+      smtpHost: process.env.SMTP_HOST || '',
+      smtpUser: process.env.SMTP_USER || '',
+      fromEmail,
+    });
+
     if (recipients.length === 0) {
       console.warn('Order alert skipped: no recipient emails configured');
       return res.json({ success: false, skipped: true, reason: 'No recipient emails configured' });
@@ -213,6 +224,7 @@ app.post('/api/send-order-alert', async (req, res) => {
     const smtpResult = await sendEmailWithSmtp({ fromEmail, recipients, subject, html });
 
     if (!smtpResult.sent) {
+      console.warn('SMTP order alert not sent:', smtpResult.reason);
       const resendResult = await sendEmailWithResend({ fromEmail, recipients, subject, html });
       if (!resendResult.sent) {
         console.warn('Order alert skipped:', smtpResult.reason, resendResult.reason);
@@ -222,9 +234,13 @@ app.post('/api/send-order-alert', async (req, res) => {
           reason: `${smtpResult.reason}; ${resendResult.reason}`,
         });
       }
+
+      console.log('Order alert email sent with Resend:', { recipients });
+      return res.json({ success: true, provider: resendResult.provider, recipients });
     }
 
-    res.json({ success: true, recipients });
+    console.log('Order alert email sent with SMTP:', { recipients });
+    res.json({ success: true, provider: smtpResult.provider, recipients });
   } catch (error) {
     console.error('Error sending order alert:', error);
     res.status(500).json({
