@@ -85,6 +85,8 @@ function App() {
   const [validatedAddress, setValidatedAddress] = useState<GeocodedAddress | null>(null);
   const [inventory, setInventory] = useState<any[]>([]);
   const [paidReservations, setPaidReservations] = useState<any[]>([]);
+  const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
+  const [paymentStatusType, setPaymentStatusType] = useState<'success' | 'warning'>('success');
   const previousCityIdRef = useRef<string | null>(null);
 
   const TAX_RATE = 0.0725;
@@ -232,26 +234,79 @@ function App() {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || '';
       const adminEmails = await getCityAdminEmails(selectedCity);
+      const alertUrl = `${apiUrl}/api/confirm-payment-and-send-alert`;
 
-      const response = await fetch(`${apiUrl}/api/send-order-alert`, {
+      console.log('ORDER EMAIL DEBUG: preparing to send paid order alert', {
+        alertUrl,
+        selectedCity: selectedCity?.name || '',
+        paymentIntentId: order.paymentIntentId || '',
+        superAdminConfiguredOnServer: true,
+        cityAdminEmails: adminEmails,
+      });
+
+      const response = await fetch(alertUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order, adminEmails }),
+        body: JSON.stringify({
+          paymentIntentId: order.paymentIntentId,
+          order,
+          adminEmails,
+        }),
       });
       const responseText = await response.text();
+      let result: any = {};
+
+      try {
+        result = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        result = { message: responseText };
+      }
+
+      console.log('ORDER EMAIL DEBUG: backend response received', {
+        status: response.status,
+        ok: response.ok,
+        responseText,
+        parsedResponse: result,
+      });
 
       if (!response.ok) {
-        console.error('Paid order alert failed:', response.status, responseText);
+        console.error('ORDER EMAIL ERROR: paid order alert failed', {
+          status: response.status,
+          responseText,
+          parsedResponse: result,
+        });
+        return {
+          success: false,
+          message: result.message || result.error || 'Email confirmation failed',
+          recipients: adminEmails,
+        };
       } else {
-        console.log('Paid order alert response:', responseText);
+        console.log('ORDER EMAIL DEBUG: paid order alert response', result);
+        return {
+          success: Boolean(result.success),
+          skipped: Boolean(result.skipped),
+          provider: result.provider || '',
+          message: result.reason || '',
+          recipients: result.recipients || adminEmails,
+        };
       }
     } catch (error) {
-      console.error('Error sending paid order alert:', error);
+      console.error('ORDER EMAIL ERROR: exception while sending paid order alert', {
+        error,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Email confirmation failed',
+        recipients: [],
+      };
     }
   };
 
   const handlePaymentSuccess = async (paymentIntentId: string) => {
-    console.log('Payment successful:', paymentIntentId);
+    console.log('PAYMENT SUCCESS DEBUG: Stripe reported payment success', { paymentIntentId });
+    setPaymentStatusType('warning');
+    setPaymentStatusMessage('Payment successful. Saving reservation and sending email confirmation...');
     
     // Save complete reservation to Firestore
     try {
@@ -328,13 +383,23 @@ function App() {
         createdAt: serverTimestamp(),
       };
 
-      // Save to paidreservation collection
-      await addDoc(collection(db, 'paidreservation'), paidReservation);
-      await sendPaidOrderAlert({
+      console.log('PAYMENT SUCCESS DEBUG: saving paid reservation to Firestore', {
+        paymentIntentId,
+        selectedCity: paidReservation.selectedCity,
+        customerEmail: paidReservation.customerEmail,
+        total: paidReservation.pricing.total,
+        cartItems: paidReservation.cart.length,
+      });
+
+      console.log('PAYMENT SUCCESS DEBUG: Stripe payment succeeded, now asking backend to verify payment and send email alert');
+      const emailResult = await sendPaidOrderAlert({
         ...paidReservation,
         createdAt: new Date().toISOString(),
       });
+      console.log('PAYMENT SUCCESS DEBUG: email alert finished', emailResult);
 
+      // Save to paidreservation collection
+      await addDoc(collection(db, 'paidreservation'), paidReservation);
       console.log('✅ Reservation saved to paidreservation collection');
 
       // Clear the form
@@ -352,9 +417,23 @@ function App() {
       setValidatedAddress(null);
       setDeliveryMethod('pickup');
 
-      alert('✅ Payment Successful! Your reservation has been confirmed. Our team will contact you within 24 hours to finalize delivery arrangements. Thank you for choosing our services!');
+      const recipients = emailResult?.recipients?.length
+        ? emailResult.recipients.join(', ')
+        : 'no recipients returned';
+      const emailConfirmationMessage = emailResult?.success
+        ? `Email confirmation sent to: ${recipients}`
+        : `Email confirmation not sent: ${emailResult?.message || 'unknown error'}`;
+
+      setPaymentStatusType(emailResult?.success ? 'success' : 'warning');
+      setPaymentStatusMessage(`Payment successful. Your reservation has been confirmed. ${emailConfirmationMessage}`);
+      alert(`Payment successful! Your reservation has been confirmed.\n\n${emailConfirmationMessage}`);
     } catch (error) {
-      console.error('Error saving reservation:', error);
+      console.error('PAYMENT SUCCESS ERROR: reservation save or email send failed', {
+        error,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setPaymentStatusType('warning');
+      setPaymentStatusMessage('Payment successful. Your reservation was confirmed, but saving the reservation or sending email needs attention.');
       alert('✅ Payment Successful! Your reservation has been confirmed. We will contact you shortly.');
     }
   };
@@ -570,6 +649,25 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {paymentStatusMessage && (
+        <div className={`fixed top-4 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 rounded-lg border px-4 py-3 text-sm font-semibold shadow-lg ${
+          paymentStatusType === 'success'
+            ? 'border-green-200 bg-green-50 text-green-900'
+            : 'border-yellow-200 bg-yellow-50 text-yellow-900'
+        }`}>
+          <div className="flex items-start justify-between gap-4">
+            <p>{paymentStatusMessage}</p>
+            <button
+              type="button"
+              onClick={() => setPaymentStatusMessage('')}
+              className="shrink-0 text-current opacity-70 hover:opacity-100"
+              aria-label="Dismiss payment status"
+            >
+              X
+            </button>
+          </div>
+        </div>
+      )}
       <Hero />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

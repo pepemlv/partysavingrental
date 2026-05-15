@@ -192,62 +192,114 @@ const sendEmailWithResend = async ({ fromEmail, recipients, subject, html }) => 
   return { sent: true, provider: 'resend' };
 };
 
+const sendOrderAlert = async ({ order, adminEmails = [] }) => {
+  const fromEmail = process.env.ORDER_ALERT_FROM_EMAIL || process.env.SMTP_USER || 'Party Saver Rentals <orders@partysavingrental.com>';
+  const superAdminEmails = (process.env.SUPER_ADMIN_ALERT_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim())
+    .filter(Boolean);
+  const recipients = [...new Set([...superAdminEmails, ...adminEmails].filter(Boolean))];
+
+  console.log('Order alert request received:', {
+    selectedCity: order.selectedCity || '',
+    paymentIntentId: order.paymentIntentId || '',
+    superAdminCount: superAdminEmails.length,
+    cityAdminCount: adminEmails.length,
+    recipientCount: recipients.length,
+    smtpHost: process.env.SMTP_HOST || '',
+    smtpUser: process.env.SMTP_USER || '',
+    fromEmail,
+  });
+
+  if (recipients.length === 0) {
+    console.warn('Order alert skipped: no recipient emails configured');
+    return { success: false, skipped: true, reason: 'No recipient emails configured', recipients };
+  }
+
+  const subject = `New paid order - ${order.selectedCity || 'Party Saver Rentals'} - $${Number(order.pricing?.total || 0).toFixed(2)}`;
+  const html = buildOrderAlertHtml(order);
+  const smtpResult = await sendEmailWithSmtp({ fromEmail, recipients, subject, html });
+
+  if (!smtpResult.sent) {
+    console.warn('SMTP order alert not sent:', smtpResult.reason);
+    const resendResult = await sendEmailWithResend({ fromEmail, recipients, subject, html });
+    if (!resendResult.sent) {
+      console.warn('Order alert skipped:', smtpResult.reason, resendResult.reason);
+      return {
+        success: false,
+        skipped: true,
+        reason: `${smtpResult.reason}; ${resendResult.reason}`,
+        recipients,
+      };
+    }
+
+    console.log('Order alert email sent with Resend:', { recipients });
+    return { success: true, provider: resendResult.provider, recipients };
+  }
+
+  console.log('Order alert email sent with SMTP:', { recipients });
+  return { success: true, provider: smtpResult.provider, recipients };
+};
+
 app.post('/api/send-order-alert', async (req, res) => {
   try {
     const { order, adminEmails = [] } = req.body;
-    const fromEmail = process.env.ORDER_ALERT_FROM_EMAIL || process.env.SMTP_USER || 'Party Saver Rentals <orders@partysavingrental.com>';
-    const superAdminEmails = (process.env.SUPER_ADMIN_ALERT_EMAILS || '')
-      .split(',')
-      .map((email) => email.trim())
-      .filter(Boolean);
-    const recipients = [...new Set([...superAdminEmails, ...adminEmails].filter(Boolean))];
 
     if (!order) {
       return res.status(400).json({ error: 'Order is required' });
     }
 
-    console.log('Order alert request received:', {
-      selectedCity: order.selectedCity || '',
-      paymentIntentId: order.paymentIntentId || '',
-      superAdminCount: superAdminEmails.length,
-      cityAdminCount: adminEmails.length,
-      recipientCount: recipients.length,
-      smtpHost: process.env.SMTP_HOST || '',
-      smtpUser: process.env.SMTP_USER || '',
-      fromEmail,
-    });
-
-    if (recipients.length === 0) {
-      console.warn('Order alert skipped: no recipient emails configured');
-      return res.json({ success: false, skipped: true, reason: 'No recipient emails configured' });
-    }
-
-    const subject = `New paid order - ${order.selectedCity || 'Party Saver Rentals'} - $${Number(order.pricing?.total || 0).toFixed(2)}`;
-    const html = buildOrderAlertHtml(order);
-    const smtpResult = await sendEmailWithSmtp({ fromEmail, recipients, subject, html });
-
-    if (!smtpResult.sent) {
-      console.warn('SMTP order alert not sent:', smtpResult.reason);
-      const resendResult = await sendEmailWithResend({ fromEmail, recipients, subject, html });
-      if (!resendResult.sent) {
-        console.warn('Order alert skipped:', smtpResult.reason, resendResult.reason);
-        return res.json({
-          success: false,
-          skipped: true,
-          reason: `${smtpResult.reason}; ${resendResult.reason}`,
-        });
-      }
-
-      console.log('Order alert email sent with Resend:', { recipients });
-      return res.json({ success: true, provider: resendResult.provider, recipients });
-    }
-
-    console.log('Order alert email sent with SMTP:', { recipients });
-    res.json({ success: true, provider: smtpResult.provider, recipients });
+    const result = await sendOrderAlert({ order, adminEmails });
+    res.json(result);
   } catch (error) {
     console.error('Error sending order alert:', error);
     res.status(500).json({
       error: 'Failed to send order alert',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+app.post('/api/confirm-payment-and-send-alert', async (req, res) => {
+  try {
+    const { paymentIntentId, order, adminEmails = [] } = req.body;
+
+    if (!paymentIntentId || !order) {
+      return res.status(400).json({ error: 'Payment intent ID and order are required' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    console.log('Stripe payment confirmation checked for order alert:', {
+      paymentIntentId,
+      status: paymentIntent.status,
+      receiptEmail: paymentIntent.receipt_email || '',
+    });
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({
+        success: false,
+        error: 'Payment is not successful',
+        paymentStatus: paymentIntent.status,
+      });
+    }
+
+    const result = await sendOrderAlert({
+      order: {
+        ...order,
+        paymentIntentId,
+      },
+      adminEmails,
+    });
+
+    res.json({
+      ...result,
+      paymentStatus: paymentIntent.status,
+    });
+  } catch (error) {
+    console.error('Error confirming payment and sending order alert:', error);
+    res.status(500).json({
+      error: 'Failed to confirm payment and send order alert',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
