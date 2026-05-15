@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase, Product, ProductAddon, City, CartItem } from './lib/supabase';
 import { geocodeAddress, calculateDistance, calculateDeliveryFee, calculateCollectionFee, GeocodedAddress } from './utils/distance';
 import { db } from './lib/firebase.ts';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy as firestoreOrderBy } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy as firestoreOrderBy, where } from 'firebase/firestore';
 import Hero from './components/Hero';
 import ProductCard from './components/ProductCard';
 import CartSummary from './components/CartSummary';
@@ -10,6 +10,8 @@ import CitySelector from './components/CitySelector';
 import DeliveryMethodSelector from './components/DeliveryMethodSelector';
 import RentalDetails from './components/RentalDetails';
 import EventDetailsForm from './components/EventDetailsForm';
+import ContactForm from './components/ContactForm';
+import Gallery from './components/Gallery';
 import Footer from './components/Footer';
 
 function ProductGalleryCard({ product, allImages }: { product: Product; allImages: string[] }) {
@@ -69,7 +71,7 @@ function App() {
   const [cities, setCities] = useState<City[]>([]);
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'delivery'>('pickup');
+  const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'delivery'>('delivery');
   const [rentalDays, setRentalDays] = useState(1);
   const [eventDate, setEventDate] = useState('');
   const [eventAddress, setEventAddress] = useState('');
@@ -81,8 +83,165 @@ function App() {
   const [distanceMiles, setDistanceMiles] = useState(0);
   const [isAddressValid, setIsAddressValid] = useState(false);
   const [validatedAddress, setValidatedAddress] = useState<GeocodedAddress | null>(null);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [paidReservations, setPaidReservations] = useState<any[]>([]);
+  const previousCityIdRef = useRef<string | null>(null);
 
   const TAX_RATE = 0.0725;
+
+  const getProductDisplayOrder = (product: Product) => {
+    const order = Number(product.display_order || 0);
+    return order > 0 ? order : Number.MAX_SAFE_INTEGER;
+  };
+
+  const getCityPricedProduct = (product: Product, city: City | null): Product => {
+    if (!city) return product;
+    const metropolePrice = city.metropole_id ? product.metropole_prices?.[city.metropole_id] : undefined;
+    if (metropolePrice !== undefined && metropolePrice !== null) {
+      return { ...product, base_price: Number(metropolePrice) };
+    }
+    const cityPrice = product.city_prices?.[city.id];
+    if (cityPrice === undefined || cityPrice === null) return product;
+    return { ...product, base_price: Number(cityPrice) };
+  };
+
+  // Auto-select delivery if pickup is not available for selected city
+  useEffect(() => {
+    if (selectedCity && selectedCity.pickup_available === false) {
+      setDeliveryMethod('delivery');
+    }
+  }, [selectedCity]);
+
+  useEffect(() => {
+    const currentCityId = selectedCity?.id || null;
+    const cityChanged = previousCityIdRef.current !== currentCityId;
+    previousCityIdRef.current = currentCityId;
+
+    setCartItems((prev) => {
+      const previousById = new Map(prev.map((item) => [item.product.id, item]));
+      return products.map((product) => {
+        const existing = previousById.get(product.id);
+        const pricedProduct = getCityPricedProduct(product, selectedCity);
+        return {
+          product: pricedProduct,
+          quantity: cityChanged ? 0 : existing?.quantity || 0,
+          addonSelected: cityChanged ? false : existing?.addonSelected || false,
+          addon: product.addon ? {
+            id: product.id,
+            product_id: product.id,
+            name: product.addon.name,
+            price: product.addon.price,
+          } : undefined,
+        };
+      });
+    });
+  }, [products, selectedCity]);
+
+  const reservationMatchesCity = (reservation: any, city: City): boolean => {
+    const reservationCityName = String(reservation.selectedCity || reservation.city_name || '').trim().toLowerCase();
+    const cityName = city.name.trim().toLowerCase();
+
+    return reservation.cityId === city.id
+      || reservation.city_id === city.id
+      || reservationCityName === cityName;
+  };
+
+  // Calculate available stock for a product in a city on the selected event date
+  const calculateAvailableStockForCity = (productId: string, city: City | null): number => {
+    if (!city || !eventDate) return 999; // Return large number if no city/date selected
+
+    // Find inventory for this product in the requested city
+    const inventoryItem = inventory.find(
+      item => item.product_id === productId && item.city_id === city.id
+    );
+
+    if (!inventoryItem) return 0; // No inventory
+
+    const totalStock = inventoryItem.total_quantity || 0;
+
+    // Calculate blocked stock from paid reservations
+    const blockedStock = paidReservations.reduce((blocked, reservation) => {
+      if (!reservationMatchesCity(reservation, city)) return blocked;
+
+      const reservationDate = new Date(reservation.eventDate);
+      const selectedDate = new Date(eventDate);
+
+      // Block stock if reservation overlaps (day before to day after)
+      const dayBefore = new Date(reservationDate);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      const dayAfter = new Date(reservationDate);
+      dayAfter.setDate(dayAfter.getDate() + 1);
+
+      if (selectedDate >= dayBefore && selectedDate <= dayAfter) {
+        // Check if this reservation has this product
+        const cartItem = reservation.cart?.find((item: any) => 
+          item.productId === productId || item.productName === products.find(p => p.id === productId)?.name
+        );
+        if (cartItem) {
+          return blocked + (cartItem.quantity || 0);
+        }
+      }
+
+      return blocked;
+    }, 0);
+
+    return Math.max(0, totalStock - blockedStock);
+  };
+
+  const calculateAvailableStock = (productId: string): number => (
+    calculateAvailableStockForCity(productId, selectedCity)
+  );
+
+  const getSameMetropoleAvailability = (productId: string, currentStock: number) => {
+    if (!selectedCity?.metropole_id || currentStock > 0) return [];
+
+    return cities
+      .filter((city) => city.id !== selectedCity.id && city.metropole_id === selectedCity.metropole_id)
+      .map((city) => ({
+        cityName: city.name,
+        quantity: calculateAvailableStockForCity(productId, city),
+      }))
+      .filter((item) => item.quantity > 0)
+      .sort((a, b) => b.quantity - a.quantity);
+  };
+
+  const getCityAdminEmails = async (city: City | null) => {
+    if (!city) return [];
+
+    const emails = new Set<string>();
+    const cityAdminRef = collection(db, 'cityadministrator');
+    const cityIdSnapshot = await getDocs(query(cityAdminRef, where('city_id', '==', city.id)));
+
+    cityIdSnapshot.forEach((adminDoc) => {
+      const email = String(adminDoc.data().email || '').trim();
+      if (email) emails.add(email);
+    });
+
+    if (emails.size === 0) {
+      const cityNameSnapshot = await getDocs(query(cityAdminRef, where('city_name', '==', city.name)));
+      cityNameSnapshot.forEach((adminDoc) => {
+        const email = String(adminDoc.data().email || '').trim();
+        if (email) emails.add(email);
+      });
+    }
+
+    return Array.from(emails);
+  };
+
+  const sendPaidOrderAlert = async (order: any) => {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const adminEmails = await getCityAdminEmails(selectedCity);
+
+      await fetch(`${apiUrl}/api/send-order-alert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order, adminEmails }),
+      });
+    } catch (error) {
+      console.error('Error sending paid order alert:', error);
+    }
+  };
 
   const handlePaymentSuccess = async (paymentIntentId: string) => {
     console.log('Payment successful:', paymentIntentId);
@@ -109,8 +268,7 @@ function App() {
           addonPrice: item.addon?.price || 0,
         }));
 
-      // Save to paidreservation collection
-      await addDoc(collection(db, 'paidreservation'), {
+      const paidReservation = {
         paymentIntentId,
         customerName,
         customerEmail,
@@ -118,13 +276,36 @@ function App() {
         eventDate,
         rentalDays,
         deliveryMethod,
-        address: deliveryMethod === 'delivery' ? {
+        address: validatedAddress ? {
+          // Save validated address for both delivery and pickup
+          street: validatedAddress.address.road 
+            ? `${validatedAddress.address.house_number || ''} ${validatedAddress.address.road}`.trim()
+            : eventAddress,
+          city: validatedAddress.address.city || validatedAddress.address.town || validatedAddress.address.village || '',
+          state: validatedAddress.address.state || eventState,
+          zipcode: validatedAddress.address.postcode || eventZipcode,
+          fullAddress: validatedAddress.display_name || `${eventAddress}, ${eventState} ${eventZipcode}`,
+          validated: validatedAddress,
+          // Keep original user input for reference
+          userTyped: {
+            street: eventAddress,
+            state: eventState,
+            zipcode: eventZipcode,
+          }
+        } : (eventAddress ? {
+          // If no validation but address entered, save basic info
           street: eventAddress,
+          city: '',
           state: eventState,
           zipcode: eventZipcode,
           fullAddress: `${eventAddress}, ${eventState} ${eventZipcode}`,
-          validated: validatedAddress,
-        } : null,
+          validated: null,
+          userTyped: {
+            street: eventAddress,
+            state: eventState,
+            zipcode: eventZipcode,
+          }
+        } : null),
         selectedCity: selectedCity?.name || '',
         pickupAddress: selectedCity?.pickup_address || '',
         distance: distanceMiles,
@@ -138,12 +319,19 @@ function App() {
         },
         status: 'confirmed',
         createdAt: serverTimestamp(),
+      };
+
+      // Save to paidreservation collection
+      await addDoc(collection(db, 'paidreservation'), paidReservation);
+      await sendPaidOrderAlert({
+        ...paidReservation,
+        createdAt: new Date().toISOString(),
       });
 
       console.log('✅ Reservation saved to paidreservation collection');
 
       // Clear the form
-      setCartItems(prev => prev.map(item => ({ ...item, quantity: 1, addonSelected: false })));
+      setCartItems(prev => prev.map(item => ({ ...item, quantity: 0, addonSelected: false })));
       setRentalDays(1);
       setEventDate(new Date().toISOString().split('T')[0]);
       setEventAddress('');
@@ -157,16 +345,18 @@ function App() {
       setValidatedAddress(null);
       setDeliveryMethod('pickup');
 
-      alert('🎉 Payment successful! Your booking has been confirmed. We will contact you shortly with delivery details.');
+      alert('✅ Payment Successful! Your reservation has been confirmed. Our team will contact you within 24 hours to finalize delivery arrangements. Thank you for choosing our services!');
     } catch (error) {
       console.error('Error saving reservation:', error);
-      alert('Payment successful! Your booking has been confirmed.');
+      alert('✅ Payment Successful! Your reservation has been confirmed. We will contact you shortly.');
     }
   };
 
   useEffect(() => {
     loadProducts();
     loadCities();
+    loadInventory();
+    loadPaidReservations();
     setEventDate(new Date().toISOString().split('T')[0]);
   }, []);
 
@@ -181,19 +371,10 @@ function App() {
       });
 
       if (productsData.length > 0) {
-        setProducts(productsData);
-        const initialCart: CartItem[] = productsData.map((product) => ({
-          product,
-          quantity: 1,
-          addonSelected: false,
-          addon: product.addon ? {
-            id: product.id,
-            product_id: product.id,
-            name: product.addon.name,
-            price: product.addon.price,
-          } : undefined,
+        setProducts(productsData.sort((a, b) => {
+          const orderDifference = getProductDisplayOrder(a) - getProductDisplayOrder(b);
+          return orderDifference || (a.name || '').localeCompare(b.name || '');
         }));
-        setCartItems(initialCart);
       }
     } catch (error) {
       console.error('Error loading products:', error);
@@ -212,10 +393,40 @@ function App() {
       
       if (data.length > 0) {
         setCities(data);
-        setSelectedCity(data[0]);
+        // Don't set default city - user must choose
       }
     } catch (error) {
       console.error('Error loading cities:', error);
+    }
+  }
+
+  async function loadInventory() {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'inventory'));
+      const data: any[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        data.push({ id: doc.id, ...doc.data() });
+      });
+      
+      setInventory(data);
+    } catch (error) {
+      console.error('Error loading inventory:', error);
+    }
+  }
+
+  async function loadPaidReservations() {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'paidreservation'));
+      const data: any[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        data.push({ id: doc.id, ...doc.data() });
+      });
+      
+      setPaidReservations(data);
+    } catch (error) {
+      console.error('Error loading paid reservations:', error);
     }
   }
 
@@ -228,7 +439,20 @@ function App() {
 
     const fullAddress = `${eventAddress}, ${eventState} ${eventZipcode}`;
     const eventCoords = await geocodeAddress(fullAddress);
-    const pickupCoords = await geocodeAddress(selectedCity.pickup_address);
+    
+    // Try geocoding first, then fallback to stored coordinates
+    let pickupCoords = await geocodeAddress(selectedCity.pickup_address);
+    
+    // If geocoding fails, use stored coordinates as fallback
+    if (!pickupCoords && selectedCity.latitude && selectedCity.longitude) {
+      console.log('Using stored coordinates for pickup location');
+      pickupCoords = {
+        lat: selectedCity.latitude,
+        lon: selectedCity.longitude,
+        display_name: selectedCity.pickup_address,
+        address: {}
+      };
+    }
 
     if (eventCoords && pickupCoords) {
       const distance = calculateDistance(
@@ -244,8 +468,8 @@ function App() {
       // Save to Firestore
       try {
         console.log('Attempting to save to Firestore...');
-        const deliveryFeeCalc = deliveryMethod === 'delivery' ? calculateDeliveryFee(distance) : 0;
-        const collectionFeeCalc = deliveryMethod === 'delivery' ? calculateCollectionFee(distance) : 0;
+        const deliveryFeeCalc = deliveryMethod === 'delivery' ? calculateDeliveryFee(distance, selectedCity?.delivery_rates) : 0;
+        const collectionFeeCalc = deliveryMethod === 'delivery' ? calculateCollectionFee(distance, selectedCity?.delivery_rates) : 0;
         
         // Prepare cart data
         const cartData = cartItems
@@ -264,11 +488,21 @@ function App() {
           customerEmail,
           customerPhone,
           address: {
-            street: eventAddress,
-            state: eventState,
-            zipcode: eventZipcode,
-            fullAddress: fullAddress,
+            // Save validated address instead of user-typed address
+            street: eventCoords.address.road 
+              ? `${eventCoords.address.house_number || ''} ${eventCoords.address.road}`.trim()
+              : eventAddress,
+            city: eventCoords.address.city || eventCoords.address.town || eventCoords.address.village || '',
+            state: eventCoords.address.state || eventState,
+            zipcode: eventCoords.address.postcode || eventZipcode,
+            fullAddress: eventCoords.display_name || fullAddress,
             validated: eventCoords,
+            // Keep original user input for reference
+            userTyped: {
+              street: eventAddress,
+              state: eventState,
+              zipcode: eventZipcode,
+            }
           },
           eventDate,
           rentalDays,
@@ -286,10 +520,8 @@ function App() {
         const docRef = await addDoc(collection(db, 'clientqueries'), docData);
         
         console.log('Client query saved successfully with ID:', docRef.id);
-        alert('Your information has been saved successfully!');
       } catch (error) {
         console.error('Error saving to Firestore:', error);
-        alert('There was an error saving your information. Please try again.');
       }
     } else {
       setIsAddressValid(false);
@@ -299,13 +531,28 @@ function App() {
   }
 
   const updateCartItem = (index: number, updates: Partial<CartItem>) => {
+    // Check if user is trying to change quantity and city is not selected
+    if (updates.quantity !== undefined && !selectedCity) {
+      alert('Please select your city first!');
+      // Scroll to city selector
+      document.getElementById('city-selector')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    
     setCartItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, ...updates } : item))
     );
   };
 
-  const deliveryFee = deliveryMethod === 'delivery' ? calculateDeliveryFee(distanceMiles) : 0;
-  const collectionFee = deliveryMethod === 'delivery' ? calculateCollectionFee(distanceMiles) : 0;
+  const deliveryFee = deliveryMethod === 'delivery' ? calculateDeliveryFee(distanceMiles, selectedCity?.delivery_rates) : 0;
+  const collectionFee = deliveryMethod === 'delivery' ? calculateCollectionFee(distanceMiles, selectedCity?.delivery_rates) : 0;
+
+  // Calculate subtotal
+  const subtotal = cartItems.reduce((sum, item) => {
+    const baseTotal = item.product.base_price * item.quantity * rentalDays;
+    const addonTotal = item.addonSelected && item.addon ? item.addon.price * item.quantity * rentalDays : 0;
+    return sum + baseTotal + addonTotal;
+  }, 0);
 
   const isFormComplete = 
     customerName.trim() !== '' &&
@@ -323,21 +570,33 @@ function App() {
 
         <div className="grid lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
+            <CitySelector
+              cities={cities}
+              selectedCity={selectedCity}
+              onCityChange={setSelectedCity}
+            />
+
             <section>
               
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Select Your Items</h2>
               <div className="grid md:grid-cols-2 gap-6">
-                {cartItems.map((item, index) => (
-                  <ProductCard
-                    key={item.product.id}
-                    product={item.product}
-                    addon={item.addon}
-                    quantity={item.quantity}
-                    addonSelected={item.addonSelected}
-                    onQuantityChange={(quantity) => updateCartItem(index, { quantity })}
-                    onAddonToggle={(addonSelected) => updateCartItem(index, { addonSelected })}
-                  />
-                ))}
+                {cartItems.map((item, index) => {
+                  const availableStock = calculateAvailableStock(item.product.id);
+
+                  return (
+                    <ProductCard
+                      key={item.product.id}
+                      product={item.product}
+                      addon={item.addon}
+                      quantity={item.quantity}
+                      addonSelected={item.addonSelected}
+                      onQuantityChange={(quantity) => updateCartItem(index, { quantity })}
+                      onAddonToggle={(addonSelected) => updateCartItem(index, { addonSelected })}
+                      availableStock={availableStock}
+                      nearbyAvailability={getSameMetropoleAvailability(item.product.id, availableStock)}
+                    />
+                  );
+                })}
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -365,16 +624,13 @@ function App() {
 
             </section>
 
-            <CitySelector
-              cities={cities}
-              selectedCity={selectedCity}
-              onCityChange={setSelectedCity}
-            />
-
             <DeliveryMethodSelector
               method={deliveryMethod}
               onMethodChange={setDeliveryMethod}
               deliveryFee={deliveryFee}
+              distanceMiles={distanceMiles}
+              isAddressValid={isAddressValid}
+              pickupAvailable={selectedCity?.pickup_available !== false}
             />
 
             <EventDetailsForm
@@ -399,6 +655,10 @@ function App() {
               distanceMiles={distanceMiles}
               deliveryFee={deliveryFee}
               collectionFee={collectionFee}
+              deliveryMethod={deliveryMethod}
+              selectedCityName={selectedCity?.name || ''}
+              advanceDays={selectedCity?.advance_days || 0}
+              subtotal={subtotal}
             />
           </div>
 
@@ -410,6 +670,8 @@ function App() {
                 collectionFee={collectionFee}
                 taxRate={TAX_RATE}
                 isFormComplete={isFormComplete}
+                isAddressValid={isAddressValid}
+                deliveryMethod={deliveryMethod}
                 rentalDays={rentalDays}
                 customerName={customerName}
                 customerEmail={customerEmail}
@@ -423,6 +685,7 @@ function App() {
           <h2 className="text-4xl font-bold text-gray-900 mb-12 text-center">Our Products</h2>
           <div className="grid md:grid-cols-2 gap-8">
             {products.map((product) => {
+              const pricedProduct = getCityPricedProduct(product, selectedCity);
               // Get all images: main, addon, and gallery
               const allImages: string[] = [];
               if (product.image_url) allImages.push(product.image_url);
@@ -434,7 +697,7 @@ function App() {
               return (
                 <ProductGalleryCard 
                   key={product.id} 
-                  product={product} 
+                  product={pricedProduct} 
                   allImages={allImages} 
                 />
               );
@@ -442,6 +705,8 @@ function App() {
           </div>
         </section>
       </div>
+      <ContactForm />
+      <Gallery />
       <Footer />
     </div>
   );

@@ -126,7 +126,7 @@ export default function RentalDetails({
                 <span className="font-semibold">• Delivery Same day:</span> {schedule.deliveryDate} between 8:00 AM - 10:00 AM
               </p>
             </div>
-            <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
               <p className="text-sm text-gray-700">
                 <span className="font-semibold">• Pickup:</span> {schedule.pickupDate} between 8:00 AM - 10:00 AM
               </p>

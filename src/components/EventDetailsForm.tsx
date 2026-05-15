@@ -24,6 +24,10 @@ interface EventDetailsFormProps {
   distanceMiles: number;
   deliveryFee: number;
   collectionFee: number;
+  deliveryMethod: 'pickup' | 'delivery';
+  selectedCityName: string;
+  advanceDays: number;
+  subtotal: number;
 }
 
 export default function EventDetailsForm({
@@ -48,10 +52,24 @@ export default function EventDetailsForm({
   distanceMiles,
   deliveryFee,
   collectionFee,
+  deliveryMethod,
+  selectedCityName,
+  advanceDays,
+  subtotal,
 }: EventDetailsFormProps) {
   const [showValidation, setShowValidation] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [phoneError, setPhoneError] = useState('');
   const [emailError, setEmailError] = useState('');
+
+  // Calculate minimum date based on advance days
+  const getMinDate = () => {
+    const today = new Date();
+    // advanceDays includes today, so we subtract 1 to get the correct earliest date
+    // e.g., 5 days in advance from Dec 22 means earliest date is Dec 26 (22+4)
+    today.setDate(today.getDate() + Math.max(0, advanceDays - 1));
+    return today.toISOString().split('T')[0];
+  };
 
   const validatePhone = (phone: string): boolean => {
     // Remove all non-digit characters
@@ -76,8 +94,8 @@ export default function EventDetailsForm({
     return true;
   };
 
-  const handleValidate = () => {
-    // First validate phone and email
+  const handleValidate = async () => {
+    // Validate phone and email
     const isPhoneValid = validatePhone(customerPhone);
     const isEmailValid = validateEmail(customerEmail);
 
@@ -85,8 +103,18 @@ export default function EventDetailsForm({
       return; // Don't proceed if validation fails
     }
 
+    setIsValidating(true);
+    setShowValidation(false);
+    
+    // Wait at least 5 seconds to show validation progress
+    const minDelay = new Promise(resolve => setTimeout(resolve, 5000));
+    const validationPromise = Promise.resolve(onValidateAddress());
+    
+    // Wait for both the minimum delay and validation to complete
+    await Promise.all([minDelay, validationPromise]);
+    
+    setIsValidating(false);
     setShowValidation(true);
-    onValidateAddress();
   };
 
   const formatEventDate = (dateStr: string) => {
@@ -141,8 +169,14 @@ export default function EventDetailsForm({
             type="date"
             value={eventDate}
             onChange={(e) => onEventDateChange(e.target.value)}
+            min={getMinDate()}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
           />
+          {advanceDays > 0 && (
+            <p className="mt-1 text-xs text-amber-600">
+              ⚠️ {selectedCityName} requires payment at least {advanceDays} days in advance to confirm your reservation and delivery. Earliest available date: {new Date(getMinDate()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          )}
           {eventDate && (
             <div className="mt-2 p-3 bg-green-50 rounded-lg">
               <p className="text-sm text-gray-700">
@@ -178,7 +212,7 @@ export default function EventDetailsForm({
               setPhoneError(''); // Clear error on change
             }}
             onBlur={() => validatePhone(customerPhone)}
-            placeholder="7042810980"
+            placeholder="980 123 4567"
             className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 ${
               phoneError ? 'border-red-500' : 'border-gray-300'
             }`}
@@ -251,13 +285,29 @@ export default function EventDetailsForm({
               />
             </div>
           </div>
+          {/* Validation errors */}
+          {(!eventDate || eventDate < getMinDate()) && (
+            <p className="text-sm text-red-600 mt-2 font-semibold">⚠️ Please select a valid event date (at least {advanceDays} days in advance)</p>
+          )}
+          {subtotal === 0 && (
+            <p className="text-sm text-red-600 mt-2 font-semibold">⚠️ Please select at least one item</p>
+          )}
           <button
             onClick={handleValidate}
-            disabled={!eventAddress || !eventState || !eventZipcode}
+            disabled={!eventAddress || !eventState || !eventZipcode || isValidating || !eventDate || eventDate < getMinDate() || subtotal === 0}
             className="w-full mt-2 bg-gradient-to-r from-green-600 to-green-700 text-white font-semibold py-2.5 rounded-lg hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md text-sm"
           >
-            Validate Address
+            {isValidating ? 'Validating...' : 'Validate Address'}
           </button>
+
+          {isValidating && (
+            <div className="mt-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <p className="text-sm text-blue-800 font-medium">Checking your address...</p>
+              </div>
+            </div>
+          )}
 
           {showValidation && isAddressValid && validatedAddress && (
             <div className="mt-2 space-y-2">
@@ -291,20 +341,27 @@ export default function EventDetailsForm({
                     <span className="font-semibold">Distance:</span> {distanceMiles.toFixed(2)} miles
                   </p>
                   <p className="text-sm text-gray-700">
-                    <span className="font-semibold">Delivery Fee:</span> ${deliveryFee.toFixed(2)}
+                    <span className="font-semibold">Delivery Fee:</span> ${deliveryFee.toFixed(2) }
                   </p>
                   <p className="text-sm text-gray-700">
                     <span className="font-semibold">Collection Fee:</span> ${collectionFee.toFixed(2)}
                   </p>
+                  
+                  {distanceMiles > 25 && (
+                    <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-300">
+                      <p className="text-sm text-yellow-800 font-medium">
+                        ⚠️ This delivery is over 25 miles. Please check if you chose the right city close to your address.
+                      </p>
+                      {deliveryMethod === 'pickup' && (
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-yellow-200">
+                          <p className="text-sm text-yellow-800">
+                            💡 You selected <span className="font-semibold">Pickup Yourself</span> - You'll pick up and return equipment at our location.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-
-                {deliveryFee > 50 && (
-                  <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-300">
-                    <p className="text-sm text-yellow-800 font-medium">
-                      ⚠️ This delivery is over 25 miles. Please check if you chose the right city close to your address.
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -327,7 +384,7 @@ export default function EventDetailsForm({
                 <span className="font-semibold">• Delivery Same day:</span> {schedule.deliveryDate} between 8:00 AM - 10:00 AM
               </p>
             </div>
-            <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
               <p className="text-sm text-gray-700">
                 <span className="font-semibold">• Return Equipment:</span> {schedule.pickupDate} between 8:00 AM - 10:00 AM
               </p>

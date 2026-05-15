@@ -9,9 +9,13 @@ export interface City {
   id: string;
   name: string;
   state: string;
+  metropole_id?: string;
+  metropole_name?: string;
   pickup_address: string;
   latitude: number;
   longitude: number;
+  notes?: string;
+  advance_days?: number;
 }
 
 export interface Product {
@@ -19,6 +23,10 @@ export interface Product {
   name: string;
   description: string;
   base_price: number;
+  display_order?: number;
+  city_prices?: Record<string, number>;
+  metropole_prices?: Record<string, number>;
+  pricing_unit?: string; // 'per chair', 'per table', 'per day', 'per equipment', etc.
   image_url?: string;
   image_urls?: string[];
   image_with_addon_url?: string;

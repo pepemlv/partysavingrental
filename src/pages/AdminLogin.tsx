@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, User } from 'lucide-react';
+import { db } from '../lib/firebase.ts';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function AdminLogin() {
   const [username, setUsername] = useState('');
@@ -8,15 +10,36 @@ export default function AdminLogin() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Simple authentication (you can enhance this with proper auth)
-    if (username === 'admin' && password === 'admin123') {
-      localStorage.setItem('isAdminAuthenticated', 'true');
-      navigate('/admin/dashboard');
-    } else {
+
+    try {
+      const cityAdminRef = collection(db, 'cityadministrator');
+      const adminQuery = query(cityAdminRef, where('username', '==', username));
+      const adminSnap = await getDocs(adminQuery);
+      if (!adminSnap.empty) {
+        const docSnap = adminSnap.docs[0];
+        const data = docSnap.data() as any;
+        if (data.password === password) {
+          if (data.status === 'active') {
+            localStorage.removeItem('isAdminAuthenticated');
+            localStorage.removeItem('sellerSession');
+            localStorage.setItem('cityAdminSession', JSON.stringify({ id: docSnap.id, ...data }));
+            navigate('/admin/dashboard');
+            return;
+          } else {
+            setError('City admin account is not active');
+            return;
+          }
+        } else {
+          setError('Invalid username or password');
+          return;
+        }
+      }
       setError('Invalid username or password');
+    } catch (err) {
+      console.error('Login error (cityadministrator)', err);
+      setError('Login error');
     }
   };
 
@@ -81,6 +104,10 @@ export default function AdminLogin() {
             Login
           </button>
         </form>
+        <div className="mt-4 text-center">
+          <p className="text-sm text-gray-600">Need Super Admin access?</p>
+          <button onClick={() => navigate('/admin/super-login')} className="mt-2 text-sm text-indigo-600 hover:underline">Super Admin Login</button>
+        </div>
       </div>
     </div>
   );

@@ -9,6 +9,8 @@ interface CartSummaryProps {
   collectionFee: number;
   taxRate: number;
   isFormComplete: boolean;
+  isAddressValid?: boolean;
+  deliveryMethod?: string;
   rentalDays: number;
   customerName: string;
   customerEmail: string;
@@ -21,7 +23,9 @@ export default function CartSummary({
   deliveryFee, 
   collectionFee, 
   taxRate, 
-  isFormComplete, 
+  isFormComplete,
+  isAddressValid = true,
+  deliveryMethod = 'pickup',
   rentalDays,
   customerName,
   customerEmail,
@@ -119,7 +123,13 @@ export default function CartSummary({
           Proceed to Checkout
         </button>
         {!isFormComplete && (
-          <p className="text-xs text-red-600 mt-2 text-center">Please complete all required fields to proceed</p>
+          <div className="text-xs text-red-600 mt-2 text-center space-y-1">
+            {deliveryMethod === 'delivery' && !isAddressValid ? (
+              <p className="font-semibold">⚠️ Please validate your delivery address before checkout</p>
+            ) : (
+              <p>Please complete all required fields to proceed</p>
+            )}
+          </div>
         )}
       </div>
 

@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getDatabase } from 'firebase/database'; // Realtime Database
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
@@ -17,12 +17,14 @@ const firebaseConfig = {
   measurementId: "G-BHQ1QPCCR6"
 };
 
-// Initialize Firebase App
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase App only if it hasn't been initialized yet
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // Initialize a secondary app for creating users without affecting current session
 // This prevents logging out the current user when creating new accounts
-const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+const secondaryApp = !getApps().find(app => app.name === 'Secondary') 
+  ? initializeApp(firebaseConfig, 'Secondary') 
+  : getApp('Secondary');
 
 // Initialize services
 const db = getFirestore(app);
