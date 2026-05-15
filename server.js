@@ -14,13 +14,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 });
 
 // CORS configuration for production
+const configuredFrontendOrigins = (process.env.FRONTEND_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? [
         'https://partysavingrental.com', 
         'https://www.partysavingrental.com',
+        'https://partysavingsrentals.com',
+        'https://www.partysavingsrentals.com',
         'https://partysavingrental.vercel.app',
-        /\.vercel\.app$/  // Allow all Vercel preview deployments
+        /\.vercel\.app$/,  // Allow all Vercel preview deployments
+        ...configuredFrontendOrigins,
       ]
     : '*',
   credentials: true,
