@@ -131,7 +131,7 @@ const buildOrderAlertHtml = (order) => {
 
 const sendEmailWithSmtp = async ({ fromEmail, recipients, subject, html }) => {
   const smtpHost = process.env.SMTP_HOST;
-  const smtpPort = Number(process.env.SMTP_PORT || 465);
+  const smtpPort = Number(process.env.SMTP_PORT || 587);
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
@@ -143,10 +143,13 @@ const sendEmailWithSmtp = async ({ fromEmail, recipients, subject, html }) => {
   const transporter = nodemailer.default.createTransport({
     host: smtpHost,
     port: smtpPort,
-    secure: smtpPort === 465,
+    secure: false,
     auth: {
       user: smtpUser,
       pass: smtpPass,
+    },
+    tls: {
+      ciphers: 'SSLv3',
     },
   });
 
