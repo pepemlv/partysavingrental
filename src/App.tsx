@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase, Product, ProductAddon, City, CartItem } from './lib/supabase';
 import { geocodeAddress, calculateDistance, calculateDeliveryFee, calculateCollectionFee, GeocodedAddress } from './utils/distance';
 import { db } from './lib/firebase.ts';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy as firestoreOrderBy, where } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy as firestoreOrderBy } from 'firebase/firestore';
 import Hero from './components/Hero';
 import ProductCard from './components/ProductCard';
 import CartSummary from './components/CartSummary';
@@ -207,111 +207,10 @@ function App() {
       .sort((a, b) => b.quantity - a.quantity);
   };
 
-  const getCityAdminEmails = async (city: City | null) => {
-    if (!city) return [];
-
-    const emails = new Set<string>();
-    const cityAdminRef = collection(db, 'cityadministrator');
-    const cityIdSnapshot = await getDocs(query(cityAdminRef, where('city_id', '==', city.id)));
-
-    cityIdSnapshot.forEach((adminDoc) => {
-      const email = String(adminDoc.data().email || '').trim();
-      if (email) emails.add(email);
-    });
-
-    if (emails.size === 0) {
-      const cityNameSnapshot = await getDocs(query(cityAdminRef, where('city_name', '==', city.name)));
-      cityNameSnapshot.forEach((adminDoc) => {
-        const email = String(adminDoc.data().email || '').trim();
-        if (email) emails.add(email);
-      });
-    }
-
-    return Array.from(emails);
-  };
-
-  const sendPaidOrderAlert = async (order: any) => {
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || '';
-      const adminEmails = await getCityAdminEmails(selectedCity);
-      const alertUrl = `${apiUrl}/api/confirm-payment-and-send-alert`;
-
-      console.log('ORDER EMAIL DEBUG: preparing to send paid order alert', {
-        alertUrl,
-        selectedCity: selectedCity?.name || '',
-        paymentIntentId: order.paymentIntentId || '',
-        superAdminConfiguredOnServer: true,
-        cityAdminEmails: adminEmails,
-      });
-
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 30000);
-
-      const response = await fetch(alertUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          paymentIntentId: order.paymentIntentId,
-          order,
-          adminEmails,
-        }),
-      });
-      window.clearTimeout(timeoutId);
-      const responseText = await response.text();
-      let result: any = {};
-
-      try {
-        result = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        result = { message: responseText };
-      }
-
-      console.log('ORDER EMAIL DEBUG: backend response received', {
-        status: response.status,
-        ok: response.ok,
-        responseText,
-        parsedResponse: result,
-      });
-
-      if (!response.ok) {
-        console.error('ORDER EMAIL ERROR: paid order alert failed', {
-          status: response.status,
-          responseText,
-          parsedResponse: result,
-        });
-        return {
-          success: false,
-          message: result.message || result.error || 'Email confirmation failed',
-          recipients: adminEmails,
-        };
-      } else {
-        console.log('ORDER EMAIL DEBUG: paid order alert response', result);
-        return {
-          success: Boolean(result.success),
-          skipped: Boolean(result.skipped),
-          provider: result.provider || '',
-          message: result.reason || '',
-          recipients: result.recipients || adminEmails,
-        };
-      }
-    } catch (error) {
-      console.error('ORDER EMAIL ERROR: exception while sending paid order alert', {
-        error,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : 'Email confirmation failed',
-        recipients: [],
-      };
-    }
-  };
-
   const handlePaymentSuccess = async (paymentIntentId: string) => {
     console.log('PAYMENT SUCCESS DEBUG: Stripe reported payment success', { paymentIntentId });
     setPaymentStatusType('warning');
-    setPaymentStatusMessage('Payment successful. Saving reservation and sending email confirmation...');
+    setPaymentStatusMessage('Payment successful. Saving reservation...');
     
     // Save complete reservation to Firestore
     try {
@@ -396,16 +295,9 @@ function App() {
         cartItems: paidReservation.cart.length,
       });
 
-      // Save to paidreservation collection first so the order is not blocked by email delivery.
+      // Save to paidreservation collection after successful payment.
       await addDoc(collection(db, 'paidreservation'), paidReservation);
-      console.log('✅ Reservation saved to paidreservation collection');
-
-      console.log('PAYMENT SUCCESS DEBUG: Stripe payment succeeded, now asking backend to verify payment and send email alert');
-      const emailResult = await sendPaidOrderAlert({
-        ...paidReservation,
-        createdAt: new Date().toISOString(),
-      });
-      console.log('PAYMENT SUCCESS DEBUG: email alert finished', emailResult);
+      console.log('Reservation saved to paidreservation collection.');
 
       // Clear the form
       setCartItems(prev => prev.map(item => ({ ...item, quantity: 0, addonSelected: false })));
@@ -422,24 +314,17 @@ function App() {
       setValidatedAddress(null);
       setDeliveryMethod('pickup');
 
-      const recipients = emailResult?.recipients?.length
-        ? emailResult.recipients.join(', ')
-        : 'no recipients returned';
-      const emailConfirmationMessage = emailResult?.success
-        ? `Email confirmation sent to: ${recipients}`
-        : `Email confirmation not sent: ${emailResult?.message || 'unknown error'}`;
-
-      setPaymentStatusType(emailResult?.success ? 'success' : 'warning');
-      setPaymentStatusMessage(`Payment successful. Your reservation has been confirmed. ${emailConfirmationMessage}`);
-      alert(`Payment successful! Your reservation has been confirmed.\n\n${emailConfirmationMessage}`);
+      setPaymentStatusType('success');
+      setPaymentStatusMessage('Payment successful. Your reservation has been confirmed.');
+      alert('Payment successful! Your reservation has been confirmed.');
     } catch (error) {
-      console.error('PAYMENT SUCCESS ERROR: reservation save or email send failed', {
+      console.error('PAYMENT SUCCESS ERROR: reservation save failed', {
         error,
         message: error instanceof Error ? error.message : String(error),
       });
       setPaymentStatusType('warning');
-      setPaymentStatusMessage('Payment successful. Your reservation was confirmed, but saving the reservation or sending email needs attention.');
-      alert('✅ Payment Successful! Your reservation has been confirmed. We will contact you shortly.');
+      setPaymentStatusMessage('Payment successful, but saving the reservation needs attention.');
+      alert('Payment successful! Your reservation has been confirmed. We will contact you shortly.');
     }
   };
 
