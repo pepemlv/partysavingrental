@@ -18,7 +18,7 @@ const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? [
         'https://partysavingrental.com',
-        'https://partysavingrental.com',
+        'https://partysavingsrentals.com',
         'https://www.partysavingrental.com',
         'https://partysavingrental.vercel.app',
         /\.vercel\.app$/  // Allow all Vercel preview deployments
