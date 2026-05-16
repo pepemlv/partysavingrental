@@ -244,15 +244,20 @@ function App() {
         cityAdminEmails: adminEmails,
       });
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
       const response = await fetch(alertUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           paymentIntentId: order.paymentIntentId,
           order,
           adminEmails,
         }),
       });
+      window.clearTimeout(timeoutId);
       const responseText = await response.text();
       let result: any = {};
 
@@ -391,16 +396,16 @@ function App() {
         cartItems: paidReservation.cart.length,
       });
 
+      // Save to paidreservation collection first so the order is not blocked by email delivery.
+      await addDoc(collection(db, 'paidreservation'), paidReservation);
+      console.log('✅ Reservation saved to paidreservation collection');
+
       console.log('PAYMENT SUCCESS DEBUG: Stripe payment succeeded, now asking backend to verify payment and send email alert');
       const emailResult = await sendPaidOrderAlert({
         ...paidReservation,
         createdAt: new Date().toISOString(),
       });
       console.log('PAYMENT SUCCESS DEBUG: email alert finished', emailResult);
-
-      // Save to paidreservation collection
-      await addDoc(collection(db, 'paidreservation'), paidReservation);
-      console.log('✅ Reservation saved to paidreservation collection');
 
       // Clear the form
       setCartItems(prev => prev.map(item => ({ ...item, quantity: 0, addonSelected: false })));

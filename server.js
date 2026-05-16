@@ -144,6 +144,10 @@ const sendEmailWithSmtp = async ({ fromEmail, recipients, subject, html }) => {
     host: smtpHost,
     port: smtpPort,
     secure: false,
+    requireTLS: smtpPort === 587,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: smtpUser,
       pass: smtpPass,
@@ -153,12 +157,42 @@ const sendEmailWithSmtp = async ({ fromEmail, recipients, subject, html }) => {
     },
   });
 
-  await transporter.sendMail({
-    from: fromEmail || smtpUser,
-    to: recipients,
-    subject,
-    html,
-  });
+  try {
+    console.log('SMTP send starting:', {
+      smtpHost,
+      smtpPort,
+      smtpUser,
+      fromEmail: fromEmail || smtpUser,
+      recipientCount: recipients.length,
+    });
+
+    const info = await transporter.sendMail({
+      from: fromEmail || smtpUser,
+      to: recipients,
+      subject,
+      html,
+    });
+
+    console.log('SMTP send accepted:', {
+      messageId: info.messageId,
+      accepted: info.accepted,
+      rejected: info.rejected,
+      response: info.response,
+    });
+  } catch (error) {
+    console.error('SMTP send failed:', {
+      message: error instanceof Error ? error.message : String(error),
+      code: error?.code,
+      command: error?.command,
+      response: error?.response,
+      responseCode: error?.responseCode,
+    });
+
+    return {
+      sent: false,
+      reason: error instanceof Error ? error.message : 'SMTP send failed',
+    };
+  }
 
   return { sent: true, provider: 'smtp' };
 };
